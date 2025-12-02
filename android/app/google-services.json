@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "115246507033",
+    "project_id": "autokaji",
+    "storage_bucket": "autokaji.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:115246507033:android:d9ef8761f8a245934d7688",
+        "android_client_info": {
+          "package_name": "com.example.autokaji"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCvVZFBpfg5A7I3nKzPXSRNMy7LErdOyuE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
