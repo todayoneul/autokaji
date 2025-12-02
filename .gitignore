@@ -46,3 +46,13 @@ app.*.map.json
 
 # API Keys
 .env
+
+# [중요] Firebase 및 Google 설정 파일 (공개되면 안 됨)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+macos/Runner/GoogleService-Info.plist
+
+# 기타 시스템 파일
+.DS_Store
+.idea/
+*.iml
