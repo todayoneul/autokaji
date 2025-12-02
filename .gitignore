@@ -51,6 +51,7 @@ app.*.map.json
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 macos/Runner/GoogleService-Info.plist
+ios/Runner/AppDelegate.swift
 
 # 기타 시스템 파일
 .DS_Store
