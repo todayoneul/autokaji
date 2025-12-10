@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:flutter/cupertino.dart'; // iOS 스타일 로딩 인디케이터용
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
@@ -7,6 +8,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:autokaji/screens/friend_screen.dart';
 import 'package:autokaji/screens/tag_notification_screen.dart';
 
@@ -22,29 +24,34 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   String get kGoogleApiKey => dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
 
-  bool _isFoodMode = true; // True: 먹지, False: 하지
+  bool _isFoodMode = true;
   bool _isLoading = false;
+  bool _isFetchingMore = false;
   Position? _currentPosition;
 
-  // 필터 설정값 (기본값: 반경 500m, 평점 0.0 이상)
   double _searchRadius = 500; 
   double _minRating = 0.0;    
 
   final Set<String> _selectedMainCats = {};
   final Set<String> _selectedSubCats = {};
 
-  // 카테고리 데이터 정의
+  List<dynamic> _searchResults = [];
+  String? _nextPageToken;
+
+  // [신규] 구글 포토 URL 캐싱 (API 호출 절약)
+  final Map<String, String> _googlePhotoCache = {};
+
   final Map<String, List<String>> _foodCategories = {
-    '한식': ['밥', '국물', '고기', '면', '분식'],
-    '중식': ['면', '밥', '요리', '딤섬'],
-    '일식': ['초밥', '돈까스', '라멘', '덮밥', '회'],
-    '양식': ['파스타', '피자', '스테이크', '버거'],
+    '한식': ['밥', '국물', '고기', '면', '분식', '찌개', '백반', '족발', '곱창'],
+    '중식': ['면', '밥', '요리', '딤섬', '짜장', '마라', '양꼬치'],
+    '일식': ['초밥', '돈까스', '라멘', '덮밥', '회', '우동', '소바', '카츠', '이자카야'],
+    '양식': ['파스타', '피자', '스테이크', '버거', '브런치'],
     '아시안': ['쌀국수', '카레', '팟타이', '타코'],
-    '카페': ['커피', '디저트', '베이커리', '전통차'],
-    '바': ['칵테일', '와인', '맥주', '이자카야'],
+    '바': ['칵테일', '와인', '맥주', '이자카야', '술집', '호프', '요리주점'],
   };
 
   final Map<String, List<String>> _playCategories = {
+    '카페': ['커피', '디저트', '베이커리', '전통차'],
     '실내': ['영화관', '노래방', 'PC방', '보드게임', '방탈출', '전시회'],
     '실외': ['공원', '산책로', '쇼핑', '테마파크'],
   };
@@ -54,6 +61,27 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _initCurrentLocation();
     _checkTagRequests();
+    _loadFilterSettings();
+  }
+
+  Future<void> _loadFilterSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _searchRadius = prefs.getDouble('searchRadius') ?? 500; 
+        _minRating = prefs.getDouble('minRating') ?? 0.0;       
+      });
+    }
+  }
+
+  Future<void> _saveFilterSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('searchRadius', _searchRadius);
+    await prefs.setDouble('minRating', _minRating);
+  }
+
+  Stream<QuerySnapshot> _getHotPlacesStream() {
+    return FirebaseFirestore.instance.collection('hot_places').snapshots();
   }
 
   Future<void> _checkTagRequests() async {
@@ -116,6 +144,40 @@ class _HomeScreenState extends State<HomeScreen> {
     return 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoReference&key=$kGoogleApiKey';
   }
 
+  // [신규] 가게 이름과 좌표로 구글 포토 URL 가져오기
+  Future<String?> _fetchGooglePlacePhoto(String storeName, double lat, double lng) async {
+    // 1. 캐시 확인 (이미 찾은 적 있으면 그거 씀)
+    if (_googlePhotoCache.containsKey(storeName)) {
+      return _googlePhotoCache[storeName];
+    }
+
+    try {
+      // 2. 구글 장소 검색 (Find Place API 사용 - 비용 효율적)
+      // textquery: 가게 이름, locationbias: 내 위치 근처 우선
+      final url = 'https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=$storeName&inputtype=textquery&fields=photos&locationbias=circle:1000@$lat,$lng&key=$kGoogleApiKey';
+      
+      final response = await http.get(Uri.parse(url));
+      
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'OK' && data['candidates'].isNotEmpty) {
+          final photos = data['candidates'][0]['photos'];
+          if (photos != null && photos.isNotEmpty) {
+            final String photoRef = photos[0]['photo_reference'];
+            final String photoUrl = 'https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=$photoRef&key=$kGoogleApiKey';
+            
+            // 캐시에 저장
+            _googlePhotoCache[storeName] = photoUrl;
+            return photoUrl;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("구글 포토 검색 실패: $e");
+    }
+    return null; // 실패하면 null 반환 (기본 이미지 뜸)
+  }
+
   Future<void> _launchNaverMapSearch(String query) async {
     final Uri appUrl = Uri.parse('nmap://search?query=$query&appname=com.gyuhan.autokaji');
     final Uri webUrl = Uri.parse('https://m.map.naver.com/search2/search.naver?query=$query');
@@ -130,65 +192,62 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // [신규] 앱의 카테고리를 구글 Places API (Nearby Search) 파라미터로 변환
-  Map<String, String> _getGoogleSearchParams() {
-    String type = 'restaurant'; // 기본값: 음식점
-    String keyword = '';        // 보조 키워드
+  Future<void> _launchInstagramSearch(String keyword) async {
+    final cleanKeyword = keyword.replaceAll(' ', '');
+    final Uri url = Uri.parse('https://www.instagram.com/explore/tags/$cleanKeyword/');
+    
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } else {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("인스타그램을 열 수 없습니다.")));
+    }
+  }
 
-    // 1. 메인 카테고리 분석 (type 설정)
+  Map<String, String> _getGoogleSearchParams() {
+    String type = 'restaurant'; 
+    String keyword = '';        
+
     if (_selectedMainCats.contains('카페')) {
       type = 'cafe';
     } else if (_selectedMainCats.contains('바')) {
       type = 'bar';
     } else if (!_isFoodMode) {
-      // 놀거리 모드
       type = 'point_of_interest'; 
     }
 
-    // 2. 키워드 조합 (한식, 중식, 면, 고기 등)
     List<String> keywords = [];
-    
-    // '카페', '바'가 아닌 나머지 메인 카테고리(한식, 중식 등)는 키워드로 추가
     for (var cat in _selectedMainCats) {
-      if (cat != '카페' && cat != '바') {
-        keywords.add(cat); 
-      }
+      if (cat != '카페' && cat != '바') keywords.add(cat); 
     }
-    
-    // 서브 카테고리 추가
-    if (_selectedSubCats.isNotEmpty) {
-      keywords.addAll(_selectedSubCats);
-    }
+    if (_selectedSubCats.isNotEmpty) keywords.addAll(_selectedSubCats);
 
-    if (keywords.isNotEmpty) {
-      keyword = keywords.join(" ");
-    }
+    if (keywords.isNotEmpty) keyword = keywords.join(" ");
 
     return {'type': type, 'keyword': keyword};
   }
 
-  // [핵심 수정] Nearby Search API를 이용한 정밀 추천 로직
   Future<void> _searchAndRecommend() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _searchResults = [];
+      _nextPageToken = null;
+    });
 
     try {
       Position position = _currentPosition ?? await _determinePosition();
       _currentPosition = position;
 
-      // 1. 파라미터 준비
       final params = _getGoogleSearchParams();
       final String type = params['type']!;
       final String keyword = params['keyword']!;
 
-      // 2. Nearby Search API URL 생성
       String url =
           'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${position.latitude},${position.longitude}&radius=$_searchRadius&type=$type&language=ko&key=$kGoogleApiKey';
 
       if (keyword.isNotEmpty) {
-        url += '&keyword=$keyword'; // 키워드가 있을 때만 추가
+        url += '&keyword=$keyword';
       }
 
-      // 3. API 호출
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
@@ -196,23 +255,20 @@ class _HomeScreenState extends State<HomeScreen> {
         
         if (data['status'] == 'OK' || data['status'] == 'ZERO_RESULTS') {
           final List<dynamic> results = data['results'];
-
-          // 4. 클라이언트 필터링 (평점)
-          // (Nearby Search는 반경 내 결과만 주므로 거리 계산은 생략해도 되지만, 정확성을 위해 유지해도 됨)
-          final List<dynamic> candidates = results.where((place) {
+          
+          final List<dynamic> filteredResults = results.where((place) {
             final double rating = (place['rating'] ?? 0).toDouble();
             return rating >= _minRating;
           }).toList();
 
-          if (candidates.isEmpty) {
-            String msg = "조건(평점 $_minRating↑)에 맞는 곳이 없어요 😭";
-            if (data['status'] == 'ZERO_RESULTS') msg = "반경 내에 해당 카테고리 장소가 없어요.";
-            
-            // 네이버 지도 검색어 (키워드가 없으면 타입으로 검색)
+          _searchResults = filteredResults;
+          _nextPageToken = data['next_page_token'];
+
+          if (_searchResults.isEmpty) {
             String fallbackQuery = keyword.isEmpty ? (type == 'restaurant' ? "맛집" : type) : keyword;
             _showNaverFallbackDialog(fallbackQuery);
           } else {
-            _showSelectionDialog(candidates);
+            _showSelectionDialog(_searchResults);
           }
         } else {
           throw Exception("API Error: ${data['status']} - ${data['error_message']}");
@@ -227,7 +283,130 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _showSelectionDialog(List<dynamic> candidates) {
+  Future<void> _fetchNextPage() async {
+    if (_nextPageToken == null || _isFetchingMore) return;
+
+    setState(() => _isFetchingMore = true);
+    await Future.delayed(const Duration(seconds: 2));
+
+    try {
+      final String url =
+          'https://maps.googleapis.com/maps/api/place/nearbysearch/json?pagetoken=$_nextPageToken&key=$kGoogleApiKey';
+
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'OK') {
+          final List<dynamic> results = data['results'];
+          
+          final List<dynamic> filteredResults = results.where((place) {
+            final double rating = (place['rating'] ?? 0).toDouble();
+            return rating >= _minRating;
+          }).toList();
+
+          setState(() {
+            _searchResults.addAll(filteredResults);
+            _nextPageToken = data['next_page_token'];
+          });
+        } else if (data['status'] == 'INVALID_REQUEST') {
+          await Future.delayed(const Duration(seconds: 1));
+          _isFetchingMore = false; 
+          await _fetchNextPage(); 
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint("추가 로딩 오류: $e");
+    } finally {
+      if (mounted) setState(() => _isFetchingMore = false);
+    }
+  }
+
+  void _showHotPlacePreview(Map<String, dynamic> place) {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // [수정] 미리보기에서도 구글 사진 로딩
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              child: FutureBuilder<String?>(
+                future: _fetchGooglePlacePhoto(place['name'], place['lat'], place['lng']),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return Container(height: 200, color: Colors.grey[100], child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey)));
+                  }
+                  if (snapshot.hasData && snapshot.data != null) {
+                    return Image.network(snapshot.data!, height: 200, width: double.infinity, fit: BoxFit.cover);
+                  }
+                  // 실패시 기본 이미지
+                  return Container(height: 200, color: Colors.grey[200], child: const Icon(Icons.store, size: 50, color: Colors.grey));
+                },
+              ),
+            ),
+            
+            Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                children: [
+                  Text(place['name'], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  const SizedBox(height: 8),
+                  
+                  if (place['menu'] != null && place['menu'] != "메뉴 정보 없음")
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
+                      child: Text(place['menu'], style: const TextStyle(fontSize: 13, color: Colors.black87), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ),
+
+                  const Text("인스타그램에서 이 핫플 구경하기", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  const SizedBox(height: 12),
+                  
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _launchInstagramSearch(place['name']),
+                      icon: const Icon(Icons.camera_alt, color: Colors.purple),
+                      label: const Text("Instagram 구경가기", style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: const BorderSide(color: Colors.purple),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        widget.onPlaceSelected(place['name'], place['lat'], place['lng']);
+                      },
+                      icon: const Icon(Icons.map),
+                      label: const Text("지도에서 위치 보기"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black, 
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSelectionDialog(List<dynamic> filteredCandidates) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -239,12 +418,12 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                "🎉 ${candidates.length}곳의 장소를 찾았어요!",
+                "🎉 ${_searchResults.length}곳 이상의 장소를 찾았어요!",
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text(
-                "반경 ${_searchRadius.toInt()}m 이내, 별점 $_minRating점 이상",
+                "반경 ${_searchRadius.toInt()}m 이내, 별점 $_minRating↑",
                 style: const TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 24),
@@ -254,7 +433,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.pop(context);
-                        _showResultList(candidates);
+                        _showResultList();
                       },
                       icon: const Icon(Icons.list),
                       label: const Text("리스트 보기"),
@@ -270,10 +449,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () {
+                        if (filteredCandidates.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("별점 조건에 맞는 곳이 없어서 랜덤을 돌릴 수 없어요!")));
+                          return;
+                        }
                         Navigator.pop(context);
                         final random = Random();
-                        final selected = candidates[random.nextInt(candidates.length)];
-                        _showSingleResultDialog(selected);
+                        final selected = filteredCandidates[random.nextInt(filteredCandidates.length)];
+                        _showSingleResultDialog(selected); 
                       },
                       icon: const Icon(Icons.casino),
                       label: const Text("랜덤 뽑기"),
@@ -293,52 +476,78 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showResultList(List<dynamic> candidates) {
+  void _showResultList() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          minChildSize: 0.5,
-          maxChildSize: 0.9,
-          expand: false,
-          builder: (context, scrollController) {
-            return Column(
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Text("추천 리스트", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ),
-                Expanded(
-                  child: ListView.separated(
-                    controller: scrollController,
-                    itemCount: candidates.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final place = candidates[index];
-                      final double rating = (place['rating'] ?? 0).toDouble();
-                      return ListTile(
-                        title: Text(place['name'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                        subtitle: Text(place['vicinity'] ?? ''), // Nearby Search는 formatted_address 대신 vicinity 사용
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.star, size: 16, color: Colors.amber),
-                            Text(" $rating"),
-                          ],
-                        ),
-                        onTap: () {
-                          Navigator.pop(context);
-                          _showSingleResultDialog(place);
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            
+            final ScrollController scrollController = ScrollController();
+            scrollController.addListener(() {
+              if (scrollController.position.pixels >= scrollController.position.maxScrollExtent - 200) {
+                if (_nextPageToken != null && !_isFetchingMore) {
+                  _fetchNextPage().then((_) {
+                    setSheetState(() {}); 
+                  });
+                }
+              }
+            });
+
+            return DraggableScrollableSheet(
+              initialChildSize: 0.8,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              expand: false,
+              builder: (context, _) {
+                return Column(
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Text("추천 리스트 (무한 스크롤)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ),
+                    Expanded(
+                      child: ListView.separated(
+                        controller: scrollController,
+                        itemCount: _searchResults.length + (_nextPageToken != null ? 1 : 0),
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          if (index == _searchResults.length) {
+                            return const Padding(
+                              padding: EdgeInsets.all(16.0),
+                              child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey)),
+                            );
+                          }
+
+                          final place = _searchResults[index];
+                          final double rating = (place['rating'] ?? 0).toDouble();
+                          
+                          return ListTile(
+                            title: Text(place['name'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                            subtitle: Text(place['vicinity'] ?? ''),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.star, size: 16, color: Colors.amber),
+                                Text(" $rating", style: const TextStyle(color: Colors.black)),
+                              ],
+                            ),
+                            onTap: () async {
+                              final bool? selected = await _showSingleResultDialog(place);
+                              if (selected == true) {
+                                Navigator.pop(context); 
+                              }
+                            },
+                          );
                         },
-                      );
-                    },
-                  ),
-                ),
-              ],
+                      ),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
@@ -346,9 +555,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showSingleResultDialog(Map<String, dynamic> place) {
+  Future<bool?> _showSingleResultDialog(Map<String, dynamic> place) async {
     final String name = place['name'];
-    final String address = place['vicinity'] ?? "주소 정보 없음"; // Nearby Search는 vicinity
+    final String address = place['vicinity'] ?? "주소 정보 없음";
     final double rating = (place['rating'] ?? 0).toDouble();
     final int userRatingsTotal = place['user_ratings_total'] ?? 0;
     final String? photoUrl = _getPhotoUrl(place['photos']);
@@ -357,7 +566,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final double lat = geometry['lat'];
     final double lng = geometry['lng'];
 
-    showDialog(
+    return showDialog<bool>(
       context: context,
       builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -394,7 +603,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () { Navigator.pop(context); widget.onPlaceSelected(name, lat, lng); },
+                      onPressed: () { 
+                        Navigator.pop(context, true); 
+                        widget.onPlaceSelected(name, lat, lng); 
+                      },
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
                       child: const Text("여기 갈래요!", style: TextStyle(fontSize: 16)),
                     ),
@@ -448,7 +660,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     label: "${_searchRadius.toInt()}m",
                     activeColor: Colors.black,
                     onChanged: (val) => setModalState(() => _searchRadius = val),
-                    onChangeEnd: (val) => setState(() => _searchRadius = val),
+                    onChangeEnd: (val) {
+                      setState(() => _searchRadius = val);
+                      _saveFilterSettings(); 
+                    },
                   ),
                   const SizedBox(height: 10),
                   Text("최소 평점: $_minRating점 이상"),
@@ -458,7 +673,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     label: "$_minRating",
                     activeColor: Colors.amber,
                     onChanged: (val) => setModalState(() => _minRating = val),
-                    onChangeEnd: (val) => setState(() => _minRating = val),
+                    onChangeEnd: (val) {
+                      setState(() => _minRating = val);
+                      _saveFilterSettings(); 
+                    },
                   ),
                 ],
               ),
@@ -545,6 +763,137 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // [수정] 핫플레이스 섹션 (사진 로딩 적용)
+  Widget _buildHotPlaces() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _getHotPlacesStream(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox();
+
+        List<Map<String, dynamic>> places = [];
+        
+        for (var doc in snapshot.data!.docs) {
+          final data = doc.data() as Map<String, dynamic>;
+          final String category = data['category'] ?? '기타';
+
+          if (_isFoodMode) {
+            if (!_foodCategories.containsKey(category) && category != '기타') continue;
+          } else {
+            if (!_playCategories.containsKey(category) && category != '기타') continue;
+          }
+
+          double distance = 0.0;
+          if (_currentPosition != null && data['lat'] != null && data['lng'] != null) {
+            distance = Geolocator.distanceBetween(
+              _currentPosition!.latitude, _currentPosition!.longitude,
+              data['lat'], data['lng']
+            );
+          }
+
+          if (distance > 700) continue;
+
+          data['distance'] = distance;
+          places.add(data);
+        }
+
+        places.sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
+
+        if (places.isEmpty) return const SizedBox();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 16.0),
+              child: Text("🔥 내 주변 핫플레이스 (700m)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+            SizedBox(
+              height: 230, 
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: places.length,
+                separatorBuilder: (ctx, i) => const SizedBox(width: 12),
+                itemBuilder: (context, index) {
+                  final data = places[index];
+                  
+                  String distStr = "";
+                  double dist = data['distance'];
+                  if (dist >= 1000) {
+                    distStr = "${(dist / 1000).toStringAsFixed(1)}km";
+                  } else {
+                    distStr = "${dist.toInt()}m";
+                  }
+
+                  return GestureDetector(
+                    onTap: () {
+                      _showHotPlacePreview(data);
+                    },
+                    child: Container(
+                      width: 160,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // [핵심] FutureBuilder로 구글 이미지 로딩
+                          ClipRRect(
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                            child: FutureBuilder<String?>(
+                              future: _fetchGooglePlacePhoto(data['name'], data['lat'], data['lng']),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState == ConnectionState.waiting) {
+                                  return Container(height: 120, color: Colors.grey[100], child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey)));
+                                }
+                                if (snapshot.hasData && snapshot.data != null) {
+                                  return Image.network(snapshot.data!, height: 120, width: double.infinity, fit: BoxFit.cover);
+                                }
+                                // 실패시 Firestore 이미지 또는 기본 아이콘
+                                return Image.network(
+                                  data['imageUrl'] ?? '',
+                                  height: 120, 
+                                  width: double.infinity, 
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (ctx, err, stack) => Container(height: 120, color: Colors.grey[200], child: const Icon(Icons.store, color: Colors.grey)),
+                                );
+                              },
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(data['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(Icons.star, size: 14, color: Colors.amber),
+                                    Text(" ${data['rating'] ?? '-'}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    const Spacer(),
+                                    Text(distStr, style: const TextStyle(fontSize: 12, color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(data['category'] ?? '', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                              ],
+                            ),
+                          )
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentCats = _isFoodMode ? _foodCategories : _playCategories;
@@ -557,10 +906,7 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.tune, color: Colors.black),
-            onPressed: _showFilterSettings,
-          ),
+          IconButton(icon: const Icon(Icons.tune, color: Colors.black), onPressed: _showFilterSettings),
           IconButton(
             icon: const Icon(Icons.people_alt_outlined, color: Colors.black),
             onPressed: () {
@@ -580,17 +926,16 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildModeToggle(),
-            const SizedBox(height: 32),
-            
+            const SizedBox(height: 24),
+            _buildHotPlaces(), 
+            const SizedBox(height: 24),
             Text(_isFoodMode ? "어떤 종류가 땡기세요?" : "어디로 갈까요?", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             _buildChipGrid(currentCats.keys.toList(), _selectedMainCats),
-            
             if (_selectedMainCats.isNotEmpty) ...[
               const SizedBox(height: 32),
               Text(_isFoodMode ? "세부 메뉴는요?" : "활동 종류", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
-              
               Builder(builder: (context) {
                 final List<String> subItems = [];
                 for (var key in _selectedMainCats) {
@@ -599,7 +944,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 return _buildChipGrid(subItems, _selectedSubCats);
               }),
             ],
-
             const SizedBox(height: 100),
           ],
         ),

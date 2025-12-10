@@ -5,12 +5,17 @@
 		<key>CFBundleIconFile</key>
 		<string></string>
 		<key>NSHumanReadableCopyright</key>
-		<string></string>
+		<string></string>		
 		<key>CFBundleURLTypes</key>
 		<array>
 			<dict>
-				<key>CFBundleURLName</key>
-				<string></string>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.googleusercontent.apps.115246507033-vnfguvnjs229oehbe25u6iobngp0554g</string>
+					<string>kakao538cec1aa89d1be786d8f8b90a362520</string>
+				</array>
 			</dict>
 		</array>
 		<key>CFBundleGetInfoString</key>
@@ -71,6 +76,8 @@
 		<key>LSApplicationQueriesSchemes</key>
 		<array>
 			<string>nmap</string>
+			<string>kakaokompassauth</string>
+			<string>kakaolink</string>
 		</array>
 		<key>UIStatusBarHidden</key>
 		<false/>
@@ -81,4 +88,5 @@
 		<key>NSMicrophoneUsageDescription</key>
 		<string>동영상 촬영을 위해 마이크 접근 권한이 필요합니다.</string>
 		</dict>
+
 </plist>

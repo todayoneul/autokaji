@@ -50,6 +50,7 @@ app.*.map.json
 # [중요] Firebase 및 Google 설정 파일 (공개되면 안 됨)
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
+ios/Runner/Secrets.swift
 macos/Runner/GoogleService-Info.plist
 ios/Runner/AppDelegate.swift
 
@@ -57,3 +58,17 @@ ios/Runner/AppDelegate.swift
 .DS_Store
 .idea/
 *.iml
+
+# 1. 데이터 파이프라인 폴더 전체 제외
+data_pipeline/
+autokaji/data_pipeline/
+
+# 2. 민감한 보안 파일
+serviceAccountKey.json
+*.env
+
+# 3. 크롤링 결과물 및 임시 파일
+*.csv
+__pycache__/
+*.pyc
+.DS_Store

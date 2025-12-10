@@ -14,7 +14,9 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
   
-  Map<String, dynamic>? _searchResult;
+  // [수정] 검색 결과를 리스트로 관리 (동명이인 처리)
+  List<Map<String, dynamic>> _searchResults = [];
+  
   bool _isSearching = false;
   final User? _currentUser = FirebaseAuth.instance.currentUser;
 
@@ -31,37 +33,53 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
-  // 이메일로 유저 검색
-  Future<void> _searchUserByEmail() async {
-    final email = _searchController.text.trim();
-    
-    // 1. 자기 자신 검색 방지
-    if (email == _currentUser?.email) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("본인은 검색할 수 없습니다.")));
-      return;
-    }
-    if (email.isEmpty) return;
+  // [수정] 통합 검색 로직 (이메일 or 닉네임)
+  Future<void> _searchUser() async {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) return;
 
     setState(() {
       _isSearching = true;
-      _searchResult = null;
+      _searchResults = []; // 초기화
     });
 
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('email', isEqualTo: email)
-          .limit(1)
-          .get();
+      QuerySnapshot snapshot;
 
-      if (snapshot.docs.isNotEmpty) {
-        setState(() {
-          _searchResult = snapshot.docs.first.data();
-          _searchResult!['uid'] = snapshot.docs.first.id;
-        });
-      } else {
+      // 1. '@'가 포함되어 있으면 이메일 검색
+      if (query.contains('@')) {
+        snapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .where('email', isEqualTo: query)
+            .get();
+      } 
+      // 2. 아니면 닉네임 검색
+      else {
+        snapshot = await FirebaseFirestore.instance
+            .collection('users')
+            .where('nickname', isEqualTo: query)
+            .get();
+      }
+
+      final List<Map<String, dynamic>> results = [];
+
+      for (var doc in snapshot.docs) {
+        // 본인은 검색 결과에서 제외
+        if (doc.id == _currentUser?.uid) continue;
+
+        final data = doc.data() as Map<String, dynamic>;
+        data['uid'] = doc.id; // UID 포함
+        results.add(data);
+      }
+
+      setState(() {
+        _searchResults = results;
+      });
+
+      if (results.isEmpty) {
         if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("사용자를 찾을 수 없습니다.")));
       }
+
     } catch (e) {
       debugPrint("검색 오류: $e");
     } finally {
@@ -69,8 +87,8 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
     }
   }
 
-  // [수정됨] 친구 요청 보내기 (중복 체크 강화)
-  Future<void> _sendFriendRequest(String targetUid, String targetNickname) async {
+  // 친구 요청 보내기
+  Future<void> _sendFriendRequest(String targetUid, String targetNickname, String targetEmail) async {
     try {
       final myUid = _currentUser!.uid;
 
@@ -87,7 +105,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
         return;
       }
 
-      // 2. 내가 이미 요청을 보냈는지 확인
+      // 2. 이미 요청을 보냈는지 확인
       final sentCheck = await FirebaseFirestore.instance
           .collection('friend_requests')
           .where('fromUid', isEqualTo: myUid)
@@ -95,11 +113,11 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
           .get();
 
       if (sentCheck.docs.isNotEmpty) {
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("이미 요청을 보냈습니다. 수락을 기다리세요.")));
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("이미 요청을 보냈습니다.")));
         return;
       }
 
-      // 3. 상대방이 나에게 이미 요청을 보냈는지 확인
+      // 3. 상대방이 이미 보냈는지 확인
       final receivedCheck = await FirebaseFirestore.instance
           .collection('friend_requests')
           .where('fromUid', isEqualTo: targetUid)
@@ -107,7 +125,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
           .get();
 
       if (receivedCheck.docs.isNotEmpty) {
-        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("상대방이 이미 요청을 보냈습니다. [받은 요청]을 확인하세요.")));
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("상대방이 이미 요청을 보냈습니다.")));
         return;
       }
 
@@ -120,7 +138,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
         'fromEmail': _currentUser!.email,
         'fromNickname': myNickname,
         'toUid': targetUid,
-        'toEmail': _searchResult!['email'],
+        'toEmail': targetEmail,
         'toNickname': targetNickname,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
@@ -128,9 +146,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
 
       if(mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("친구 요청을 보냈습니다!")));
-        setState(() => _searchResult = null);
-        _searchController.clear();
-        FocusScope.of(context).unfocus(); // 키보드 내림
+        // 검색 결과 유지 (다른 사람도 추가할 수 있으므로)
       }
     } catch (e) {
       debugPrint("요청 오류: $e");
@@ -140,49 +156,23 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
   Future<void> _acceptRequest(DocumentSnapshot requestDoc) async {
     final data = requestDoc.data() as Map<String, dynamic>;
     final String fromUid = data['fromUid'];
-    // 닉네임은 여기서 저장하지 않고 UID만 연결 (실시간 조회를 위해)
-    // 하지만 초기 데이터 구성을 위해 일단 저장하고, 읽을 때 갱신함.
-    final String fromNickname = data['fromNickname']; 
+    final String fromNickname = data['fromNickname'];
     final String fromEmail = data['fromEmail'];
     final String toUid = data['toUid'];
 
     WriteBatch batch = FirebaseFirestore.instance.batch();
 
-    // 1. 내 친구 목록에 상대방 추가
-    DocumentReference myFriendRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(toUid)
-        .collection('friends')
-        .doc(fromUid);
-    
-    batch.set(myFriendRef, {
-      'uid': fromUid,
-      'createdAt': FieldValue.serverTimestamp(),
-      // 닉네임은 굳이 저장 안 해도 되지만, 백업용으로 저장
-      'initialNickname': fromNickname, 
-      'email': fromEmail,
-    });
+    DocumentReference myFriendRef = FirebaseFirestore.instance.collection('users').doc(toUid).collection('friends').doc(fromUid);
+    batch.set(myFriendRef, {'uid': fromUid, 'createdAt': FieldValue.serverTimestamp(), 'initialNickname': fromNickname, 'email': fromEmail});
 
-    // 2. 상대방 친구 목록에 나 추가
     final myDoc = await FirebaseFirestore.instance.collection('users').doc(toUid).get();
     final myNickname = myDoc.data()?['nickname'] ?? '알 수 없음';
     final myEmail = myDoc.data()?['email'] ?? '';
 
-    DocumentReference otherFriendRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(fromUid)
-        .collection('friends')
-        .doc(toUid);
-
-    batch.set(otherFriendRef, {
-      'uid': toUid,
-      'createdAt': FieldValue.serverTimestamp(),
-      'initialNickname': myNickname,
-      'email': myEmail,
-    });
+    DocumentReference otherFriendRef = FirebaseFirestore.instance.collection('users').doc(fromUid).collection('friends').doc(toUid);
+    batch.set(otherFriendRef, {'uid': toUid, 'createdAt': FieldValue.serverTimestamp(), 'initialNickname': myNickname, 'email': myEmail});
 
     batch.delete(requestDoc.reference);
-
     await batch.commit();
   }
 
@@ -208,92 +198,94 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
       body: TabBarView(
         controller: _tabController,
         children: [
-          // 내 친구 목록
+          // [탭 1] 내 친구 목록 + 검색
           Column(
             children: [
+              // 검색 영역
               Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          hintText: "이메일로 친구 검색",
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          suffixIcon: IconButton(
-                            icon: const Icon(Icons.search),
-                            onPressed: _searchUserByEmail,
-                          ),
-                        ),
-                        onSubmitted: (_) => _searchUserByEmail(),
-                      ),
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: "이메일 또는 닉네임 검색", // [수정] 힌트 변경
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.search),
+                      onPressed: _searchUser, // [수정] 함수 연결
                     ),
-                  ],
+                  ),
+                  onSubmitted: (_) => _searchUser(),
                 ),
               ),
               
               if (_isSearching) const LinearProgressIndicator(color: Colors.black),
-              if (_searchResult != null)
+
+              // [수정] 검색 결과 리스트 (여러 명일 수 있음)
+              if (_searchResults.isNotEmpty)
                 Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  padding: const EdgeInsets.all(16),
+                  constraints: const BoxConstraints(maxHeight: 200), // 결과창 높이 제한
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
                     color: Colors.grey[100],
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Row(
-                    children: [
-                      const CircleAvatar(child: Icon(Icons.person)),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(_searchResult!['nickname'] ?? '이름 없음', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            Text(_searchResult!['email'] ?? '', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                          ],
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _searchResults.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final user = _searchResults[index];
+                      return ListTile(
+                        leading: const CircleAvatar(child: Icon(Icons.person)),
+                        title: Text(user['nickname'] ?? '이름 없음', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        // [중요] 이메일을 함께 표시하여 구분
+                        subtitle: Text(user['email'] ?? '', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                        trailing: ElevatedButton(
+                          onPressed: () => _sendFriendRequest(user['uid'], user['nickname'] ?? '이름 없음', user['email'] ?? ''),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.black, 
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          child: const Text("신청", style: TextStyle(fontSize: 12)),
                         ),
-                      ),
-                      ElevatedButton(
-                        onPressed: () => _sendFriendRequest(_searchResult!['uid'], _searchResult!['nickname'] ?? '이름 없음'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
-                        child: const Text("친구 신청"),
-                      )
-                    ],
+                      );
+                    },
                   ),
                 ),
 
               const Divider(),
               
+              // 내 친구 리스트
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('users')
                       .doc(_currentUser!.uid)
                       .collection('friends')
+                      .orderBy('createdAt', descending: true)
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                    final friendDocs = snapshot.data!.docs;
+                    final friends = snapshot.data!.docs;
 
-                    if (friendDocs.isEmpty) {
+                    if (friends.isEmpty) {
                       return const Center(child: Text("아직 등록된 친구가 없습니다.", style: TextStyle(color: Colors.grey)));
                     }
 
                     return ListView.builder(
-                      itemCount: friendDocs.length,
+                      itemCount: friends.length,
                       itemBuilder: (context, index) {
-                        final friendRelData = friendDocs[index].data() as Map<String, dynamic>;
+                        final friendRelData = friends[index].data() as Map<String, dynamic>;
                         final String friendUid = friendRelData['uid'];
 
-                        // [핵심 수정] 친구의 실시간 정보를 가져오기 위해 StreamBuilder 중첩 사용
-                        // (친구 목록에 저장된 옛날 닉네임이 아니라, 실제 유저 테이블의 최신 닉네임을 가져옴)
                         return StreamBuilder<DocumentSnapshot>(
                           stream: FirebaseFirestore.instance.collection('users').doc(friendUid).snapshots(),
                           builder: (context, userSnapshot) {
-                            if (!userSnapshot.hasData) return const SizedBox(); // 로딩 중엔 빈 공간
+                            if (!userSnapshot.hasData) return const SizedBox();
                             
                             final userData = userSnapshot.data!.data() as Map<String, dynamic>?;
                             final String nickname = userData?['nickname'] ?? '알 수 없음';
@@ -328,7 +320,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
             ],
           ),
 
-          // 받은 요청 목록
+          // 받은 요청 목록 (기존과 동일)
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('friend_requests')

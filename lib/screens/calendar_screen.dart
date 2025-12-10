@@ -8,7 +8,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-// [삭제] import 'package:autokaji/screens/tag_notification_screen.dart';
 
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
@@ -24,11 +23,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
   bool _isListView = false;
   final ImagePicker _picker = ImagePicker();
 
-  // 검색 관련 변수
+  // 검색 관련
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   List<QueryDocumentSnapshot> _searchResults = []; 
   List<QueryDocumentSnapshot> _allDataCache = [];  
+
+  // [신규] 리스트 필터 상태 ('All', 'Solo', 'Friends')
+  Set<String> _historyFilter = {'All'};
 
   final List<String> _emptyMessages = [
     "이번 달은 다이어트 중이신가요? 🥗",
@@ -132,6 +134,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
     String currentMemo = data['memo'] ?? '';
     double currentRating = (data['myRating'] ?? 0).toDouble();
     String? currentImageUrl = data['imageUrl'];
+    // 태그된 친구 정보 가져오기
+    final List<dynamic> taggedFriends = data['taggedFriends'] ?? [];
 
     final TextEditingController memoController = TextEditingController(text: currentMemo);
 
@@ -159,7 +163,25 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
-                          child: Text(storeName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                storeName,
+                                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              // [신규] 함께한 친구 표시
+                              if (taggedFriends.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4.0),
+                                  child: Text(
+                                    "With: ${taggedFriends.join(", ")}",
+                                    style: TextStyle(fontSize: 13, color: Colors.blue[700], fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete_outline, color: Colors.red, size: 28),
@@ -347,7 +369,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
-  // 공통 리스트 아이템 빌더
   Widget _buildListItem(QueryDocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     final String storeName = data['storeName'] ?? '이름 없음';
@@ -357,6 +378,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final Timestamp visitTime = data['visitDate'];
     final DateTime visitDate = visitTime.toDate();
     final String? imageUrl = data['imageUrl'];
+    final List<dynamic> taggedFriends = data['taggedFriends'] ?? [];
 
     return Container(
       decoration: BoxDecoration(
@@ -372,7 +394,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
             : Container(width: 50, height: 50, decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.restaurant, color: Colors.black54)),
         title: Row(
           children: [
-            Expanded(child: Text(storeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+            Expanded(child: Text(storeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), overflow: TextOverflow.ellipsis)),
             if (myRating > 0)
               Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: Colors.amber.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.star, size: 14, color: Colors.amber), Text(" $myRating", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber))])),
           ],
@@ -387,6 +409,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 Text(DateFormat('yy.MM.dd').format(visitDate), style: TextStyle(fontSize: 12, color: Colors.grey[400])),
               ],
             ),
+            if (taggedFriends.isNotEmpty)
+               Text("With: ${taggedFriends.join(", ")}", style: const TextStyle(fontSize: 12, color: Colors.blue, fontWeight: FontWeight.w500)),
             if (memo.isNotEmpty)
               Padding(padding: const EdgeInsets.only(top: 4.0), child: Text(memo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13))),
           ],
@@ -396,30 +420,69 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
+  // [수정됨] 리스트 모드 화면 (필터 추가)
   Widget _buildAllHistoryList(List<QueryDocumentSnapshot> allVisits) {
-    if (allVisits.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.history_edu, size: 64, color: Colors.grey),
-            const SizedBox(height: 16),
-            const Text("아직 저장된 맛집 기록이 없어요.\n지도에서 맛집을 찾아 저장해보세요!", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 16)),
-          ],
-        ),
-      );
-    }
+    // 1. 필터링 로직
+    final filteredVisits = allVisits.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final List<dynamic> friends = data['taggedFriends'] ?? [];
+      
+      if (_historyFilter.contains('All')) return true;
+      if (_historyFilter.contains('Solo')) return friends.isEmpty;
+      if (_historyFilter.contains('Friends')) return friends.isNotEmpty;
+      return true;
+    }).toList();
+
     return Column(
       children: [
         _buildStatisticsCard(allVisits),
-        const Padding(padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8), child: Align(alignment: Alignment.centerLeft, child: Text("전체 기록", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)))),
-        Expanded(
-          child: ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            itemCount: allVisits.length,
-            separatorBuilder: (ctx, i) => const SizedBox(height: 12),
-            itemBuilder: (context, index) => _buildListItem(allVisits[index]),
+        
+        // [신규] 필터 버튼 영역
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Row(
+            children: [
+              const Text("전체 기록", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const Spacer(),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'All', label: Text('전체')),
+                  ButtonSegment(value: 'Solo', label: Text('혼자')),
+                  ButtonSegment(value: 'Friends', label: Text('친구랑')),
+                ],
+                selected: _historyFilter,
+                onSelectionChanged: (Set<String> newSelection) {
+                  setState(() {
+                    _historyFilter = newSelection;
+                  });
+                },
+                style: ButtonStyle(
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
           ),
+        ),
+
+        Expanded(
+          child: filteredVisits.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.filter_list_off, size: 64, color: Colors.grey),
+                      const SizedBox(height: 16),
+                      const Text("해당하는 기록이 없어요.", style: TextStyle(color: Colors.grey, fontSize: 16)),
+                    ],
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  itemCount: filteredVisits.length,
+                  separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) => _buildListItem(filteredVisits[index]),
+                ),
         ),
       ],
     );
@@ -429,7 +492,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
-    if (user == null || user.isAnonymous) {
+    if (user == null || (user.isAnonymous && user.displayName == null)) {
       return Scaffold(
         appBar: AppBar(title: const Text('방문 기록')),
         body: const Center(child: Text('로그인 후 방문 기록을 확인해보세요!')),
@@ -438,7 +501,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // 검색 모드일 때 TextField 표시
         title: _isSearching
             ? TextField(
                 controller: _searchController,
@@ -465,7 +527,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
               });
             },
           ),
-          // [알림 아이콘 삭제됨]
           if (!_isSearching) ...[
             Padding(
               padding: const EdgeInsets.only(right: 16.0),
