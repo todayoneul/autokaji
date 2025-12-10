@@ -53,6 +53,7 @@ ios/Runner/GoogleService-Info.plist
 ios/Runner/Secrets.swift
 macos/Runner/GoogleService-Info.plist
 ios/Runner/AppDelegate.swift
+ios/Runner/Secrets.swift
 
 # 기타 시스템 파일
 .DS_Store
