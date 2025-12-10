@@ -54,7 +54,7 @@ ios/Runner/Secrets.swift
 macos/Runner/GoogleService-Info.plist
 ios/Runner/AppDelegate.swift
 ios/Runner/Secrets.swift
-
+lib/firebase_options.dart
 # 기타 시스템 파일
 .DS_Store
 .idea/
