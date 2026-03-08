@@ -1,16 +1,52 @@
 # autokaji
 
-A new Flutter project.
+나는 지독한 뭐든 괜찮아 아무거나 결정 장애 인간
 
-## Getting Started
+맨날 어떡하지 뭐 먹지 이런 고민하는 인간
 
-This project is a starting point for a Flutter application.
+그렇지만 아무리 뭐든 괜찮아 아무거나 인간이라도 맨날 똑같은 음식 똑같은 생활은 노잼
 
-A few resources to get you started if this is your first Flutter project:
+​
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+한식, 일식, 중식, 양식을 구분 지어 
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+유저가 원하는 음식의 종류를 정하면
+
+그에 맞는 음식점을 추천해 주면서
+
+그런 것도 귀찮을 때에는 밥, 빵, 면, 고기를 선택해서
+
+음식점을 추천해 주자!
+​
+
++ 음식점 뿐만 아니라 데이트 혹은 쇼핑, 놀 거리에 관해서도 추천을 만들 수 있을 것 같음
+
+홈 화면에서 뭐 먹지? / 뭐 하지? 스위치를 만들고
+
+선택해서 각각의 추천 시스템을 구분할 수 있게 함
+
+​
+
+기능 1 -> 카테고리를 구분해서 음식점/ 놀 거리 추천
+
+​
+
+분명 맛있고 괜찮았는데, 언제 어디에서 갔는지 기억이 안 나는 경우가 생기는 경우에 굉장히 거슬림
+
+물론 네이버, 카카오 지도에 저장 기능이 있음
+
+거긴 직접 가지 않았어도 가고 싶은 곳도 저장하고
+
+그냥 좋아 보이는 곳도 저장하고
+
+보기가 좀 불편했음
+
+​
+
+유저가 실제로 방문한 가게들만 나만의 별점을 주고 정리해 주는 기능이 있었으면 좋겠다고 생각​
+
+기능 2 -> 캘린더와 별점 기록
+
+(gps나 영수증 등 인증 기능을 추가하면 좋을 듯)
+큰 두 가지의 기능을 가지고 앱을 만들기 시작
+
