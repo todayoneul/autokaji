@@ -360,6 +360,30 @@ class _MapScreenState extends State<MapScreen> {
     _debounce = Timer(const Duration(milliseconds: 500), () { _fetchSuggestions(query); });
   }
 
+// [수정됨] 구글 지도 실행 (장소 이름으로 검색)
+  Future<void> _launchGoogleMap(String name) async {
+    // Google Maps Universal Link 사용 (iOS/Android 공통)
+    final Uri url = Uri(
+      scheme: 'https',
+      host: 'www.google.com',
+      path: '/maps/search/',
+      queryParameters: {
+        'api': '1',
+        'query': name, // 좌표 대신 이름으로 검색
+      },
+    );
+
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("구글 지도를 열 수 없습니다.")));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("구글 지도 실행 오류: $e")));
+    }
+  }
+
   // [수정된 핵심 함수] 장소 상세 정보 가져오기 -> 지도 이동 -> 팝업 띄우기
   Future<void> _getPlaceDetails(String placeId, String description) async {
     // 1. 검색창에 텍스트 채우기 & 리스트 닫기
@@ -433,7 +457,19 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _launchNaverMap(double lat, double lng, String name) async {
-    final url = Uri.parse('nmap://route/public?dlat=$lat&dlng=$lng&dname=$name&appname=com.gyuhan.autokaji');
+
+    final Uri url = Uri(
+      scheme: 'nmap',
+      host: 'route',
+      path: '/public',
+      queryParameters: {
+        'dlat': '$lat',
+        'dlng': '$lng',
+        'dname': name, // 도착지 이름 명시
+        'appname': 'com.gyuhan.autokaji',
+      },
+    );
+    
     try {
       if (await canLaunchUrl(url)) { await launchUrl(url); }
       else {
@@ -511,7 +547,37 @@ class _MapScreenState extends State<MapScreen> {
                             const SizedBox(height: 20),
                             
                             // 길찾기 버튼
-                            SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: () => _launchNaverMap(lat, lng, name), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF03C75A), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 12)), icon: const Icon(Icons.map_outlined), label: const Text("네이버 지도로 길찾기"))),
+                            // [수정] 네이버 지도 & 구글 지도 버튼 나란히 배치
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _launchNaverMap(lat, lng, name), 
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF03C75A), 
+                                      foregroundColor: Colors.white, 
+                                      padding: const EdgeInsets.symmetric(vertical: 12)
+                                    ), 
+                                    icon: const Icon(Icons.map_outlined), 
+                                    label: const Text("네이버 지도"),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _launchGoogleMap(name), 
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.white, 
+                                      foregroundColor: Colors.black, 
+                                      padding: const EdgeInsets.symmetric(vertical: 12),
+                                      side: const BorderSide(color: Colors.grey)
+                                    ), 
+                                    icon: const Icon(Icons.map, color: Colors.blue), 
+                                    label: const Text("구글 지도"),
+                                  ),
+                                ),
+                              ],
+                            ),
                             
                             const SizedBox(height: 24),
                             const Text("종류 선택", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),

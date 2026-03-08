@@ -790,7 +790,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
 
-          if (distance > 700) continue;
+          if (distance > 5000) continue;
 
           data['distance'] = distance;
           places.add(data);
