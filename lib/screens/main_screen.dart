@@ -3,6 +3,8 @@ import 'package:autokaji/screens/home_screen.dart';
 import 'package:autokaji/screens/map_screen.dart';
 import 'package:autokaji/screens/calendar_screen.dart';
 import 'package:autokaji/screens/settings_screen.dart';
+import 'package:autokaji/theme/app_colors.dart';
+import 'package:autokaji/theme/app_theme.dart';
 
 // [신규] 지도 이동을 위한 데이터 모델
 class TargetPlace {
@@ -54,45 +56,97 @@ class _MainScreenState extends State<MainScreen> {
 
     return Scaffold(
       body: SafeArea(
-        // IndexedStack을 사용하면 탭 전환 시 상태가 유지됩니다 (지도가 다시 로딩되지 않음)
-        // 하지만 여기서는 데이터 전달 시 갱신을 위해 일단 단순 전환 유지
-        // 데이터 갱신을 위해 key를 주거나, MapScreen 내부에서 didUpdateWidget 처리 필요
         child: widgetOptions.elementAt(_selectedIndex),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: '홈',
+      extendBody: true,
+      bottomNavigationBar: _buildFloatingNavBar(),
+    );
+  }
+
+  Widget _buildFloatingNavBar() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusXxl),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.secondary.withOpacity(0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+            spreadRadius: 0,
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.map_outlined),
-            activeIcon: Icon(Icons.map),
-            label: '지도',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today_outlined),
-            activeIcon: Icon(Icons.calendar_today),
-            label: '캘린더',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings_outlined),
-            activeIcon: Icon(Icons.settings),
-            label: '설정',
+          BoxShadow(
+            color: AppColors.secondary.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+            spreadRadius: 0,
           ),
         ],
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
-        selectedItemColor: Colors.black,
-        unselectedItemColor: Colors.grey[500],
-        selectedFontSize: 12,
-        unselectedFontSize: 12,
-        showUnselectedLabels: true,
-        elevation: 1,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppTheme.radiusXxl),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildNavItem(0, Icons.home_rounded, Icons.home_outlined, '홈'),
+              _buildNavItem(1, Icons.map_rounded, Icons.map_outlined, '지도'),
+              _buildNavItem(2, Icons.calendar_month_rounded, Icons.calendar_month_outlined, '캘린더'),
+              _buildNavItem(3, Icons.person_rounded, Icons.person_outlined, '마이'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavItem(int index, IconData activeIcon, IconData inactiveIcon, String label) {
+    final bool isSelected = _selectedIndex == index;
+
+    return GestureDetector(
+      onTap: () => _onItemTapped(index),
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.symmetric(
+          horizontal: isSelected ? 18 : 14,
+          vertical: 10,
+        ),
+        decoration: BoxDecoration(
+          gradient: isSelected ? AppColors.primaryGradient : null,
+          borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isSelected ? activeIcon : inactiveIcon,
+              size: 22,
+              color: isSelected ? Colors.white : AppColors.textTertiary,
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              child: isSelected
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: Text(
+                        label,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
       ),
     );
   }

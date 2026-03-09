@@ -16,6 +16,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:autokaji/providers/location_provider.dart';
 import 'package:autokaji/providers/visit_provider.dart';
+import 'package:autokaji/theme/app_colors.dart';
+import 'package:autokaji/theme/app_theme.dart';
+import 'package:autokaji/widgets/common_widgets.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   final TargetPlace? initialTarget;
@@ -40,7 +43,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Set<Marker> _savedMarkers = {}; 
   Marker? _searchMarker;          
 
-  // 상태 변수
   bool _isFoodMode = true; 
   bool _showCategoryChips = true; 
   bool _areMarkersVisible = true; 
@@ -81,7 +83,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     super.dispose();
   }
 
-  // [이모지 마커 생성]
   Future<BitmapDescriptor> _createEmojiMarkerBitmap(String category) async {
     String emoji;
     switch (category) {
@@ -108,7 +109,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     canvas.drawCircle(Offset(radius, radius), radius, paint);
 
     final ui.Paint borderPaint = ui.Paint()
-      ..color = const ui.Color.fromARGB(255, 255, 255, 255)
+      ..color = const ui.Color.fromARGB(255, 255, 107, 107) // Coral border
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4.0;
     canvas.drawCircle(Offset(radius, radius), radius - 2, borderPaint);
@@ -157,7 +158,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   'name': data['storeName'],
                   'formatted_address': data['address'] ?? '',
                   'rating': null,
-                  'photos': [] // 저장된 데이터엔 사진 정보가 없을 수 있음
+                  'photos': []
                 }, data['lat'], data['lng']);
               },
             ),
@@ -173,21 +174,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  // --- UI 구성 ---
   Widget _buildModeSelectButtons() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+        boxShadow: AppTheme.shadowSm,
+      ),
       child: Row(
         children: [
-          _bigModeButton("🍚  뭐 먹지?", Colors.blueAccent, true),
-          const SizedBox(width: 12),
-          _bigModeButton("🎡  뭐 하지?", Colors.orangeAccent, false),
+          _bigModeButton("🍚  뭐 먹지?", true),
+          const SizedBox(width: 4),
+          _bigModeButton("🎡  뭐 하지?", false),
         ],
       ),
     );
   }
 
-  Widget _bigModeButton(String text, Color color, bool isFood) {
+  Widget _bigModeButton(String text, bool isFood) {
+    final bool isSelected = _isFoodMode == isFood;
     return Expanded(
       child: GestureDetector(
         onTap: () {
@@ -198,16 +205,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           });
           _applyFilter();
         },
-        child: Container(
-          height: 50,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          height: 44,
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4, offset: const Offset(0, 2))],
-            border: Border.all(color: color.withOpacity(0.5), width: 1.5),
+            gradient: isSelected ? AppColors.primaryGradient : null,
+            color: isSelected ? null : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+            boxShadow: isSelected ? [BoxShadow(color: AppColors.primary.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 2))] : [],
           ),
           child: Center(
-            child: Text(text, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+            child: Text(text, style: TextStyle(
+              fontSize: 14, 
+              fontWeight: FontWeight.w700, 
+              color: isSelected ? Colors.white : AppColors.textSecondary,
+            )),
           ),
         ),
       ),
@@ -233,12 +246,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               child: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: AppColors.surface,
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey[300]!),
-                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 4)],
+                  boxShadow: AppTheme.shadowSm,
                 ),
-                child: const Icon(Icons.arrow_back, size: 20, color: Colors.black),
+                child: const Icon(Icons.arrow_back_rounded, size: 20, color: AppColors.textPrimary),
               ),
             ),
           ),
@@ -257,20 +269,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     _applyFilter();
                   }
                 },
-                backgroundColor: Colors.white.withOpacity(0.9),
-                selectedColor: Colors.black,
+                backgroundColor: AppColors.surface.withOpacity(0.95),
+                selectedColor: AppColors.primary,
                 labelStyle: TextStyle(
-                  color: isSelected ? Colors.white : Colors.black,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  color: isSelected ? Colors.white : AppColors.textPrimary,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: 13,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(color: isSelected ? Colors.black : Colors.grey[300]!),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                  side: BorderSide(color: isSelected ? AppColors.primary : AppColors.border),
                 ),
                 checkmarkColor: Colors.white,
+                elevation: 0,
+                pressElevation: 0,
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
@@ -293,11 +308,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     });
   }
 
-  // --- 검색 로직 ---
   Future<void> _fetchSuggestions(String input) async {
     if (input.isEmpty) { setState(() => _placePredictions = []); return; }
     
-    // [수정] 내 위치 기반 편향 검색 (location & radius 추가)
     String url = 'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=$input&key=$kGoogleApiKey&language=ko&components=country:kr';
     
     try {
@@ -305,7 +318,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       if (locationAsync.hasValue && locationAsync.value != null) {
         final lat = locationAsync.value!.latitude;
         final lng = locationAsync.value!.longitude;
-        // 10km 이내의 결과를 우선적으로 반환하도록 location과 radius 설정
         url += '&location=$lat,$lng&radius=10000';
       }
     } catch (e) {
@@ -326,16 +338,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _debounce = Timer(const Duration(milliseconds: 500), () { _fetchSuggestions(query); });
   }
 
-// [수정됨] 구글 지도 실행 (장소 이름으로 검색)
   Future<void> _launchGoogleMap(String name) async {
-    // Google Maps Universal Link 사용 (iOS/Android 공통)
     final Uri url = Uri(
       scheme: 'https',
       host: 'www.google.com',
       path: '/maps/search/',
       queryParameters: {
         'api': '1',
-        'query': name, // 좌표 대신 이름으로 검색
+        'query': name,
       },
     );
 
@@ -350,14 +360,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  // [수정된 핵심 함수] 장소 상세 정보 가져오기 -> 지도 이동 -> 팝업 띄우기
   Future<void> _getPlaceDetails(String placeId, String description) async {
-    // 1. 검색창에 텍스트 채우기 & 리스트 닫기
     setState(() {
       _searchController.text = description;
-      _placePredictions = []; // 리스트 즉시 제거
+      _placePredictions = [];
     });
-    _dismissKeyboard(); // 키보드 내리기
+    _dismissKeyboard();
 
     final String url = 'https://maps.googleapis.com/maps/api/place/details/json?place_id=$placeId&fields=geometry,name,rating,photos,formatted_address&key=$kGoogleApiKey';
     
@@ -372,12 +380,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           final double lng = location['lng'];
           final String name = result['name'] ?? description;
 
-          // 2. 지도 이동 및 마커 표시
           _moveCamera(lat, lng);
           _setSearchMarker(lat, lng, name);
           
-          // 3. 저장 팝업 띄우기 (사진 포함)
-          // 지도가 이동하는 동안 약간의 딜레이를 주어 자연스럽게 띄움
           Future.delayed(const Duration(milliseconds: 500), () {
              if (mounted) _showSaveDialog(result, lat, lng);
           });
@@ -414,7 +419,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     FocusScope.of(context).unfocus();
   }
 
-  // 맵 배경 터치 시
   void _onMapInteraction() {
     _dismissKeyboard();
     if (_placePredictions.isNotEmpty) {
@@ -423,7 +427,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   Future<void> _launchNaverMap(double lat, double lng, String name) async {
-
     final Uri url = Uri(
       scheme: 'nmap',
       host: 'route',
@@ -431,7 +434,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       queryParameters: {
         'dlat': '$lat',
         'dlng': '$lng',
-        'dname': name, // 도착지 이름 명시
+        'dname': name,
         'appname': 'com.gyuhan.autokaji',
       },
     );
@@ -445,12 +448,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("네이버 지도 실행 오류: $e"))); }
   }
 
-  // [저장/상세보기 다이얼로그]
   void _showSaveDialog(Map<String, dynamic> placeData, double lat, double lng) {
     final String name = placeData['name'];
     final String address = placeData['formatted_address'] ?? "";
     final double? rating = placeData['rating']?.toDouble();
-    // 사진 URL 가져오기
     final String? photoUrl = _getPhotoUrl(placeData['photos']);
 
     String selectedFoodType = '한식';
@@ -461,14 +462,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     showModalBottomSheet(
       context: context, 
       isScrollControlled: true, 
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final user = FirebaseAuth.instance.currentUser;
             return DraggableScrollableSheet(
-              initialChildSize: 0.75, // 사진이 있으므로 높이를 좀 더 확보
+              initialChildSize: 0.75,
               minChildSize: 0.4, 
               maxChildSize: 0.95, 
               expand: false,
@@ -478,25 +479,46 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // [사진 표시 영역]
                       if (photoUrl != null)
                         ClipRRect(
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)), 
-                          child: Image.network(
-                            photoUrl, 
-                            height: 220, 
-                            fit: BoxFit.cover, 
-                            errorBuilder: (ctx, err, stack) => Container(height: 180, color: Colors.grey[200], child: const Icon(Icons.broken_image))
-                          )
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)), 
+                          child: Stack(
+                            children: [
+                              Image.network(
+                                photoUrl, 
+                                height: 220, 
+                                fit: BoxFit.cover,
+                                width: double.infinity,
+                                errorBuilder: (ctx, err, stack) => Container(height: 180, color: AppColors.surfaceVariant, child: const Icon(Icons.broken_image_rounded, color: AppColors.textTertiary)),
+                              ),
+                              Positioned.fill(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [Colors.transparent, Colors.black.withOpacity(0.3)],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         )
                       else 
-                        Container(
-                          height: 100, 
-                          decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                          ),
-                          child: const Center(child: Icon(Icons.store, size: 40, color: Colors.grey)),
+                        Column(
+                          children: [
+                            const BottomSheetHandle(),
+                            Container(
+                              height: 80, 
+                              margin: const EdgeInsets.symmetric(horizontal: 24),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceVariant,
+                                borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                              ),
+                              child: Center(child: Icon(Icons.store_rounded, size: 40, color: AppColors.textTertiary)),
+                            ),
+                          ],
                         ),
                       
                       Padding(
@@ -504,63 +526,135 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // 이름 및 평점
-                            Text(name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                            Text(name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
                             if (rating != null) 
-                              Row(children: [const Icon(Icons.star, color: Colors.amber, size: 20), Text(" $rating", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16))]),
-                            const SizedBox(height: 8),
-                            Text(address, style: const TextStyle(color: Colors.grey)),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.accentSurface,
+                                    borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.star_rounded, color: AppColors.accent, size: 18),
+                                      const SizedBox(width: 4),
+                                      Text("$rating", style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.accent)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            if (address.isNotEmpty) 
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(address, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                              ),
                             const SizedBox(height: 20),
                             
-                            // 길찾기 버튼
-                            // [수정] 네이버 지도 & 구글 지도 버튼 나란히 배치
                             Row(
                               children: [
                                 Expanded(
                                   child: ElevatedButton.icon(
                                     onPressed: () => _launchNaverMap(lat, lng, name), 
                                     style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF03C75A), 
+                                      backgroundColor: AppColors.naver, 
                                       foregroundColor: Colors.white, 
-                                      padding: const EdgeInsets.symmetric(vertical: 12)
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
                                     ), 
-                                    icon: const Icon(Icons.map_outlined), 
-                                    label: const Text("네이버 지도"),
+                                    icon: const Icon(Icons.map_outlined, size: 20), 
+                                    label: const Text("네이버 지도", style: TextStyle(fontWeight: FontWeight.w700)),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
-                                  child: ElevatedButton.icon(
+                                  child: OutlinedButton.icon(
                                     onPressed: () => _launchGoogleMap(name), 
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.white, 
-                                      foregroundColor: Colors.black, 
-                                      padding: const EdgeInsets.symmetric(vertical: 12),
-                                      side: const BorderSide(color: Colors.grey)
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppColors.textPrimary, 
+                                      padding: const EdgeInsets.symmetric(vertical: 14),
+                                      side: const BorderSide(color: AppColors.border),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
                                     ), 
-                                    icon: const Icon(Icons.map, color: Colors.blue), 
-                                    label: const Text("구글 지도"),
+                                    icon: Icon(Icons.map_rounded, color: AppColors.google, size: 20), 
+                                    label: const Text("구글 지도", style: TextStyle(fontWeight: FontWeight.w700)),
                                   ),
                                 ),
                               ],
                             ),
                             
+                            const SizedBox(height: 28),
+                            const Text("종류 선택", style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700, fontSize: 14)),
+                            const SizedBox(height: 10),
+                            Wrap(spacing: 8.0, runSpacing: 8.0, children: saveCategories.map((type) {
+                              final isSelected = selectedFoodType == type;
+                              return ChoiceChip(
+                                label: Text(type),
+                                selected: isSelected,
+                                selectedColor: AppColors.primary,
+                                backgroundColor: AppColors.surfaceVariant,
+                                labelStyle: TextStyle(
+                                  color: isSelected ? Colors.white : AppColors.textPrimary,
+                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                  fontSize: 13,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                                  side: BorderSide(color: isSelected ? AppColors.primary : AppColors.border),
+                                ),
+                                checkmarkColor: Colors.white,
+                                onSelected: (sel) { if (sel) setSheetState(() => selectedFoodType = type); },
+                              );
+                            }).toList()),
+                            
                             const SizedBox(height: 24),
-                            const Text("종류 선택", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                            Wrap(spacing: 8.0, children: saveCategories.map((type) => ChoiceChip(label: Text(type), selected: selectedFoodType == type, selectedColor: Colors.black, labelStyle: TextStyle(color: selectedFoodType == type ? Colors.white : Colors.black), onSelected: (sel) { if (sel) setSheetState(() => selectedFoodType = type); })).toList()),
+                            const Text("방문 날짜", style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700, fontSize: 14)),
+                            const SizedBox(height: 10),
+                            GestureDetector(
+                              onTap: () async { 
+                                final picked = await showDatePicker(
+                                  context: context, 
+                                  initialDate: selectedDate, 
+                                  firstDate: DateTime(2020), 
+                                  lastDate: DateTime.now(),
+                                  builder: (context, child) {
+                                    return Theme(
+                                      data: Theme.of(context).copyWith(
+                                        colorScheme: const ColorScheme.light(primary: AppColors.primary),
+                                      ),
+                                      child: child!,
+                                    );
+                                  },
+                                ); 
+                                if (picked != null) setSheetState(() => selectedDate = picked); 
+                              }, 
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16), 
+                                decoration: BoxDecoration(
+                                  color: AppColors.surfaceVariant,
+                                  borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                                ), 
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween, 
+                                  children: [
+                                    Text(DateFormat('yyyy년 MM월 dd일').format(selectedDate), style: const TextStyle(fontWeight: FontWeight.w600)),
+                                    const Icon(Icons.calendar_today_rounded, size: 18, color: AppColors.textSecondary),
+                                  ],
+                                ),
+                              ),
+                            ),
                             
-                            const SizedBox(height: 20),
-                            const Text("방문 날짜", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-                            InkWell(onTap: () async { final picked = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime(2020), lastDate: DateTime.now()); if (picked != null) setSheetState(() => selectedDate = picked); }, child: Container(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16), decoration: BoxDecoration(border: Border.all(color: Colors.grey[300]!), borderRadius: BorderRadius.circular(8)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(DateFormat('yyyy년 MM월 dd일').format(selectedDate)), const Icon(Icons.calendar_today, size: 18, color: Colors.grey)]))),
-                            
-                            const SizedBox(height: 20),
+                            const SizedBox(height: 24),
                             if (user != null && !(user.isAnonymous && user.displayName == null)) ...[
-                              const Text("함께한 친구", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                              const Text("함께한 친구", style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700, fontSize: 14)),
+                              const SizedBox(height: 10),
                               StreamBuilder<QuerySnapshot>(
                                 stream: FirebaseFirestore.instance.collection('users').doc(user.uid).collection('friends').snapshots(),
                                 builder: (context, snapshot) {
-                                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Text("등록된 친구가 없습니다.", style: TextStyle(color: Colors.grey));
-                                  return Wrap(spacing: 8.0, children: snapshot.data!.docs.map((doc) {
+                                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return Text("등록된 친구가 없습니다.", style: TextStyle(color: AppColors.textTertiary, fontSize: 13));
+                                  return Wrap(spacing: 8.0, runSpacing: 8.0, children: snapshot.data!.docs.map((doc) {
                                     final friendUid = doc.id;
                                     return StreamBuilder<DocumentSnapshot>(
                                       stream: FirebaseFirestore.instance.collection('users').doc(friendUid).snapshots(),
@@ -568,17 +662,36 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                                         String dName = "로딩중...";
                                         if (userSnapshot.hasData && userSnapshot.data!.exists) dName = userSnapshot.data!['nickname'] ?? '알 수 없음';
                                         final isSelected = selectedFriends.containsKey(friendUid);
-                                        return FilterChip(label: Text(dName), selected: isSelected, onSelected: (sel) => setSheetState(() => sel ? selectedFriends[friendUid] = dName : selectedFriends.remove(friendUid)));
+                                        return FilterChip(
+                                          label: Text(dName),
+                                          selected: isSelected,
+                                          selectedColor: AppColors.primarySurface,
+                                          backgroundColor: AppColors.surfaceVariant,
+                                          labelStyle: TextStyle(
+                                            color: isSelected ? AppColors.primary : AppColors.textPrimary,
+                                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                            fontSize: 13,
+                                          ),
+                                          checkmarkColor: AppColors.primary,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                                            side: BorderSide(color: isSelected ? AppColors.primary : AppColors.border),
+                                          ),
+                                          onSelected: (sel) => setSheetState(() => sel ? selectedFriends[friendUid] = dName : selectedFriends.remove(friendUid)),
+                                        );
                                       });
                                   }).toList());
                                 }),
                               const SizedBox(height: 30),
                             ],
                             
-                            ElevatedButton(
-                              onPressed: () => _saveVisitToFirestore(name, address, selectedFoodType, selectedDate, lat, lng, selectedFriends), 
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50)), 
-                              child: const Text("방문 기록 저장하기")
+                            SizedBox(
+                              width: double.infinity,
+                              child: AppGradientButton(
+                                text: "방문 기록 저장하기",
+                                icon: Icons.check_rounded,
+                                onPressed: () => _saveVisitToFirestore(name, address, selectedFoodType, selectedDate, lat, lng, selectedFriends),
+                              ),
                             ),
                           ],
                         ),
@@ -598,7 +711,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || (user.isAnonymous && user.displayName == null)) {
       if (!mounted) return;
-      showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text("로그인 필요"), content: const Text("방문 기록을 저장하려면 로그인이 필요합니다."), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("확인"))]));
+      showDialog(
+        context: context, 
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXxl)),
+          title: const Text("로그인 필요", style: TextStyle(fontWeight: FontWeight.w800)), 
+          content: const Text("방문 기록을 저장하려면 로그인이 필요합니다."), 
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("확인", style: TextStyle(color: AppColors.primary)))],
+        ),
+      );
       return;
     }
     try {
@@ -626,7 +747,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 방문 기록 데이터 구독 및 마커 업데이트
     ref.listen<AsyncValue<List<QueryDocumentSnapshot>>>(userVisitsProvider, (previous, next) {
       if (next.hasValue) {
         _allVisits = next.value!;
@@ -648,8 +768,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       extendBodyBehindAppBar: true,
       body: Stack(
         children: [
-          // 1. 구글 맵
-          locationAsync.isLoading ? const Center(child: CircularProgressIndicator()) : GoogleMap(
+          locationAsync.isLoading 
+              ? const Center(child: CircularProgressIndicator(color: AppColors.primary)) 
+              : GoogleMap(
             onMapCreated: (controller) { 
               _googleMapController = controller; 
               _isMapCreated = true;
@@ -661,62 +782,99 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             myLocationEnabled: true, myLocationButtonEnabled: true, zoomControlsEnabled: true, mapToolbarEnabled: false, compassEnabled: true,
             padding: const EdgeInsets.only(top: 100, bottom: 20),
             markers: _savedMarkers.union(_searchMarker != null ? {_searchMarker!} : {}),
-            // 맵 배경을 터치했을 때만 검색 리스트와 키보드를 닫음
             onTap: (_) => _onMapInteraction(),
             onCameraMoveStarted: () {
               _dismissKeyboard();
             },
           ),
           
-          // 2. 검색 UI 오버레이
           Positioned(
             top: 0, left: 0, right: 0,
             child: SafeArea(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 검색바
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.9), borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 4))]),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface.withOpacity(0.95), 
+                      borderRadius: BorderRadius.circular(AppTheme.radiusXl), 
+                      boxShadow: AppTheme.shadowMd,
+                    ),
                     child: Row(
                       children: [
                         Expanded(
                           child: TextField(
-                            controller: _searchController, focusNode: _searchFocusNode, onChanged: _onSearchChanged,
-                            decoration: InputDecoration(hintText: "장소, 주소 검색", border: InputBorder.none, prefixIcon: const Icon(Icons.search, color: Colors.black54), suffixIcon: _searchController.text.isNotEmpty ? IconButton(icon: const Icon(Icons.clear, color: Colors.grey), onPressed: () { _searchController.clear(); setState(() => _placePredictions = []); }) : null, contentPadding: const EdgeInsets.symmetric(vertical: 14)),
+                            controller: _searchController, 
+                            focusNode: _searchFocusNode, 
+                            onChanged: _onSearchChanged,
+                            decoration: InputDecoration(
+                              hintText: "장소, 주소 검색", 
+                              border: InputBorder.none, 
+                              prefixIcon: const Icon(Icons.search_rounded, color: AppColors.textSecondary), 
+                              suffixIcon: _searchController.text.isNotEmpty 
+                                  ? IconButton(icon: const Icon(Icons.close_rounded, color: AppColors.textTertiary), onPressed: () { _searchController.clear(); setState(() => _placePredictions = []); }) 
+                                  : null, 
+                              contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                              filled: false,
+                            ),
                           ),
                         ),
-                        IconButton(
-                          icon: Icon(_areMarkersVisible ? Icons.visibility : Icons.visibility_off, color: _areMarkersVisible ? Colors.black : Colors.grey),
-                          onPressed: () {
-                            setState(() { _areMarkersVisible = !_areMarkersVisible; });
-                            _applyFilter();
-                          },
+                        Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(
+                            color: _areMarkersVisible ? AppColors.primarySurface : AppColors.surfaceVariant,
+                            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                          ),
+                          child: IconButton(
+                            icon: Icon(_areMarkersVisible ? Icons.visibility_rounded : Icons.visibility_off_rounded, 
+                              color: _areMarkersVisible ? AppColors.primary : AppColors.textTertiary, size: 22),
+                            onPressed: () {
+                              setState(() { _areMarkersVisible = !_areMarkersVisible; });
+                              _applyFilter();
+                            },
+                          ),
                         ),
-                        const SizedBox(width: 8),
                       ],
                     ),
                   ),
 
+                  const SizedBox(height: 4),
                   _showCategoryChips ? _buildCategoryChips() : _buildModeSelectButtons(),
 
-                  // [중요] 검색 결과 리스트 (Listener 제거됨)
                   if (_placePredictions.isNotEmpty)
                     Container(
                       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       constraints: const BoxConstraints(maxHeight: 300),
-                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.95), borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, 5))]),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface.withOpacity(0.98), 
+                        borderRadius: BorderRadius.circular(AppTheme.radiusLg), 
+                        boxShadow: AppTheme.shadowLg,
+                      ),
                       child: ListView.separated(
                         padding: EdgeInsets.zero, shrinkWrap: true, itemCount: _placePredictions.length,
-                        separatorBuilder: (ctx, i) => const Divider(height: 1),
+                        separatorBuilder: (ctx, i) => const Divider(height: 1, color: AppColors.divider),
                         itemBuilder: (context, index) {
                           final prediction = _placePredictions[index];
                           return ListTile(
-                            title: Text(prediction['structured_formatting']?['main_text'] ?? prediction['description'], overflow: TextOverflow.ellipsis),
-                            subtitle: Text(prediction['structured_formatting']?['secondary_text'] ?? "", overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
-                            leading: const Icon(Icons.location_on, color: Colors.grey),
-                            // 클릭 시 상세 정보 가져오기 -> 지도 이동 -> 저장 팝업
+                            title: Text(
+                              prediction['structured_formatting']?['main_text'] ?? prediction['description'], 
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                            ),
+                            subtitle: Text(
+                              prediction['structured_formatting']?['secondary_text'] ?? "", 
+                              overflow: TextOverflow.ellipsis, 
+                              style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
+                            ),
+                            leading: Container(
+                              width: 36, height: 36,
+                              decoration: BoxDecoration(
+                                color: AppColors.primarySurface,
+                                borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                              ),
+                              child: const Icon(Icons.location_on_rounded, color: AppColors.primary, size: 20),
+                            ),
                             onTap: () {
                               _getPlaceDetails(prediction['place_id'], prediction['description']);
                             },

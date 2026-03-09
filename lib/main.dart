@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:autokaji/screens/auth/auth_gate.dart';
 import 'package:autokaji/screens/onboarding_screen.dart'; // [신규]
+import 'package:autokaji/theme/app_theme.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -56,16 +57,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'autokaji',
-      theme: ThemeData(
-        primaryColor: Colors.black,
-        scaffoldBackgroundColor: Colors.white,
-        fontFamily: 'Pretendard',
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.white,
-          elevation: 0,
-          foregroundColor: Colors.black,
-        ),
-      ),
+      theme: AppTheme.lightTheme,
       // [핵심] 첫 실행이면 온보딩, 아니면 인증 게이트로 이동
       home: isFirstRun ? const OnboardingScreen() : const AuthGate(),
       debugShowCheckedModeBanner: false,

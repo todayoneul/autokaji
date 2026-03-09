@@ -10,6 +10,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:autokaji/providers/visit_provider.dart';
+import 'package:autokaji/theme/app_colors.dart';
+import 'package:autokaji/theme/app_theme.dart';
+import 'package:autokaji/widgets/common_widgets.dart';
 
 class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
@@ -136,7 +139,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     String currentMemo = data['memo'] ?? '';
     double currentRating = (data['myRating'] ?? 0).toDouble();
     String? currentImageUrl = data['imageUrl'];
-    // 태그된 친구 정보 가져오기
     final List<dynamic> taggedFriends = data['taggedFriends'] ?? [];
 
     final TextEditingController memoController = TextEditingController(text: currentMemo);
@@ -144,15 +146,15 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
         return Padding(
           padding: EdgeInsets.only(
             bottom: MediaQuery.of(context).viewInsets.bottom, 
-            left: 24, right: 24, top: 24
+            left: 24, right: 24, top: 8
           ),
           child: StatefulBuilder(
             builder: (context, setStateSheet) {
@@ -161,6 +163,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    const BottomSheetHandle(),
+                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -170,40 +174,55 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                             children: [
                               Text(
                                 storeName,
-                                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.5),
                                 overflow: TextOverflow.ellipsis,
                               ),
-                              // [신규] 함께한 친구 표시
                               if (taggedFriends.isNotEmpty)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 4.0),
-                                  child: Text(
-                                    "With: ${taggedFriends.join(", ")}",
-                                    style: TextStyle(fontSize: 13, color: Colors.blue[700], fontWeight: FontWeight.w600),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.people_rounded, size: 14, color: AppColors.primary),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          taggedFriends.join(", "),
+                                          style: const TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w600),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                             ],
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 28),
-                          onPressed: () async {
-                            final confirm = await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text("기록 삭제"),
-                                content: const Text("정말로 이 기록을 삭제하시겠습니까?"),
-                                actions: [
-                                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소")),
-                                  TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("삭제", style: TextStyle(color: Colors.red))),
-                                ],
-                              ),
-                            );
-                            if (confirm == true) {
-                              await ref.read(visitRepositoryProvider).deleteVisit(doc.id);
-                              if (mounted) Navigator.pop(context);
-                            }
-                          },
+                        Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.error.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                          ),
+                          child: IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: AppColors.error, size: 22),
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXxl)),
+                                  title: const Text("기록 삭제", style: TextStyle(fontWeight: FontWeight.w800)),
+                                  content: const Text("정말로 이 기록을 삭제하시겠습니까?"),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("취소", style: TextStyle(color: AppColors.textSecondary))),
+                                    TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("삭제", style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w700))),
+                                  ],
+                                ),
+                              );
+                              if (confirm == true) {
+                                await ref.read(visitRepositoryProvider).deleteVisit(doc.id);
+                                if (mounted) Navigator.pop(context);
+                              }
+                            },
+                          ),
                         ),
                       ],
                     ),
@@ -220,41 +239,48 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         child: Container(
                           width: double.infinity, height: 200,
                           decoration: BoxDecoration(
-                            color: Colors.grey[100],
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.grey[300]!),
+                            color: AppColors.surfaceVariant,
+                            borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+                            border: Border.all(color: AppColors.border),
                             image: currentImageUrl != null ? DecorationImage(image: NetworkImage(currentImageUrl!), fit: BoxFit.cover) : null,
                           ),
                           child: currentImageUrl == null
-                              ? Column(mainAxisAlignment: MainAxisAlignment.center, children: const [Icon(Icons.add_a_photo, size: 40, color: Colors.grey), SizedBox(height: 8), Text("사진 추가하기", style: TextStyle(color: Colors.grey))])
-                              : Stack(children: [Positioned(right: 8, top: 8, child: CircleAvatar(backgroundColor: Colors.black.withOpacity(0.5), child: IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () { setStateSheet(() => currentImageUrl = null); }))) ]),
+                              ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.add_a_photo_rounded, size: 40, color: AppColors.textTertiary), const SizedBox(height: 8), Text("사진 추가하기", style: TextStyle(color: AppColors.textTertiary))])
+                              : Stack(children: [Positioned(right: 8, top: 8, child: Container(decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), borderRadius: BorderRadius.circular(AppTheme.radiusFull)), child: IconButton(icon: const Icon(Icons.close_rounded, color: Colors.white, size: 20), onPressed: () { setStateSheet(() => currentImageUrl = null); })))]),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    const Text("나만의 평점", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 24),
+                    const Text("나만의 평점", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.textPrimary)),
+                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: List.generate(5, (index) {
-                        return IconButton(
-                          icon: Icon(index < currentRating ? Icons.star : Icons.star_border, color: Colors.amber, size: 40),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          onPressed: () { setStateSheet(() { currentRating = index + 1.0; }); },
+                        return GestureDetector(
+                          onTap: () => setStateSheet(() { currentRating = index + 1.0; }),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            child: Icon(
+                              index < currentRating ? Icons.star_rounded : Icons.star_outline_rounded, 
+                              color: AppColors.accent, 
+                              size: 40,
+                            ),
+                          ),
                         );
-                      }).expand((widget) => [widget, const SizedBox(width: 8)]).toList()..removeLast(),
+                      }),
                     ),
                     const SizedBox(height: 24),
-                    const Text("메모", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const Text("메모", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.textPrimary)),
                     const SizedBox(height: 10),
                     TextField(
                       controller: memoController,
                       maxLength: 100, maxLines: 4,
                       decoration: InputDecoration(
                         hintText: "방문 후기를 남겨보세요 (최대 100자)",
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        contentPadding: const EdgeInsets.all(16), filled: true, fillColor: Colors.grey[50],
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.all(16), 
+                        filled: true, 
+                        fillColor: AppColors.surfaceVariant,
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -263,20 +289,25 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         Expanded(
                           child: OutlinedButton(
                             onPressed: () => Navigator.pop(context),
-                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                            child: const Text("취소", style: TextStyle(color: Colors.black)),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16), 
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg)),
+                              side: const BorderSide(color: AppColors.border),
+                            ),
+                            child: const Text("취소", style: TextStyle(color: AppColors.textPrimary)),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
-                          child: ElevatedButton(
+                          child: AppGradientButton(
+                            text: "저장",
+                            height: 52,
                             onPressed: () async {
                               await ref.read(visitRepositoryProvider).updateVisit(doc.id, {
                                 'myRating': currentRating, 'memo': memoController.text.trim(), 'imageUrl': currentImageUrl,
                               });
                               if (mounted) Navigator.pop(context);
-                            },                            style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                            child: const Text("저장", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            },
                           ),
                         ),
                       ],
@@ -295,25 +326,26 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   void _selectYearMonth(BuildContext context) {
     DateTime tempPickedDate = _focusedDay;
     showModalBottomSheet(
-      context: context, backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      context: context, backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (BuildContext builder) {
         return SizedBox(
-          height: 300,
+          height: 320,
           child: Column(
             children: [
+              const BottomSheetHandle(),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Colors.grey, width: 0.5))),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    GestureDetector(onTap: () => Navigator.pop(context), child: const Text("취소", style: TextStyle(color: Colors.grey, fontSize: 16))),
-                    const Text("날짜 선택", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    GestureDetector(onTap: () { setState(() { _focusedDay = tempPickedDate; }); Navigator.pop(context); }, child: const Text("확인", style: TextStyle(color: Colors.blue, fontSize: 16, fontWeight: FontWeight.bold))),
+                    GestureDetector(onTap: () => Navigator.pop(context), child: const Text("취소", style: TextStyle(color: AppColors.textTertiary, fontSize: 16))),
+                    const Text("날짜 선택", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                    GestureDetector(onTap: () { setState(() { _focusedDay = tempPickedDate; }); Navigator.pop(context); }, child: const Text("확인", style: TextStyle(color: AppColors.primary, fontSize: 16, fontWeight: FontWeight.w700))),
                   ],
                 ),
               ),
+              const Divider(color: AppColors.divider),
               Expanded(
                 child: CupertinoDatePicker(
                   initialDateTime: _focusedDay, mode: CupertinoDatePickerMode.monthYear,
@@ -346,15 +378,19 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     String avgRating = ratingCount > 0 ? (totalRating / ratingCount).toStringAsFixed(1) : '0.0';
     return Container(
       margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: const Color(0xFF2C2C2C), borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))]),
+      decoration: BoxDecoration(
+        gradient: AppColors.secondaryGradient,
+        borderRadius: BorderRadius.circular(AppTheme.radiusXl), 
+        boxShadow: AppTheme.shadowLg,
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _statItem(Icons.emoji_events, "최애 음식", topFood, Colors.amber),
+          _statItem(Icons.emoji_events_rounded, "최애 음식", topFood, AppColors.accent),
           Container(width: 1, height: 40, color: Colors.white24),
-          _statItem(Icons.star, "평균 별점", avgRating, Colors.yellowAccent),
+          _statItem(Icons.star_rounded, "평균 별점", avgRating, AppColors.accentLight),
           Container(width: 1, height: 40, color: Colors.white24),
-          _statItem(Icons.restaurant_menu, "누적 방문", "${allVisits.length}회", Colors.white),
+          _statItem(Icons.restaurant_menu_rounded, "누적 방문", "${allVisits.length}회", Colors.white),
         ],
       ),
     );
@@ -364,8 +400,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     return Column(
       children: [
         Icon(icon, color: color, size: 24), const SizedBox(height: 8),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)), const SizedBox(height: 4),
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(color: Colors.white60, fontSize: 11, fontWeight: FontWeight.w500)), const SizedBox(height: 4),
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
       ],
     );
   }
@@ -381,43 +417,80 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     final String? imageUrl = data['imageUrl'];
     final List<dynamic> taggedFriends = data['taggedFriends'] ?? [];
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.withOpacity(0.2)),
-        boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: imageUrl != null 
-            ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(imageUrl, width: 50, height: 50, fit: BoxFit.cover, errorBuilder: (ctx, err, stack) => const Icon(Icons.broken_image)))
-            : Container(width: 50, height: 50, decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)), child: const Icon(Icons.restaurant, color: Colors.black54)),
-        title: Row(
-          children: [
-            Expanded(child: Text(storeName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16), overflow: TextOverflow.ellipsis)),
-            if (myRating > 0)
-              Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: Colors.amber.withOpacity(0.1), borderRadius: BorderRadius.circular(8)), child: Row(children: [const Icon(Icons.star, size: 14, color: Colors.amber), Text(" $myRating", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.amber))])),
-          ],
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return AppCard(
+      onTap: () => _showEditSheet(doc),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          // 이미지/아이콘 영역
+          ClipRRect(
+            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+            child: imageUrl != null 
+                ? Image.network(imageUrl, width: 56, height: 56, fit: BoxFit.cover, errorBuilder: (ctx, err, stack) => _buildPlaceholderIcon())
+                : _buildPlaceholderIcon(),
+          ),
+          const SizedBox(width: 14),
+          // 정보 영역
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(foodType, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-                const SizedBox(width: 8),
-                Text(DateFormat('yy.MM.dd').format(visitDate), style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+                Row(
+                  children: [
+                    Expanded(child: Text(storeName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, letterSpacing: -0.3), overflow: TextOverflow.ellipsis)),
+                    if (myRating > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3), 
+                        decoration: BoxDecoration(color: AppColors.accentSurface, borderRadius: BorderRadius.circular(AppTheme.radiusFull)), 
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star_rounded, size: 13, color: AppColors.accent), 
+                            const SizedBox(width: 2),
+                            Text("$myRating", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.accent)),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(6)),
+                      child: Text(foodType, style: const TextStyle(color: AppColors.textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(DateFormat('yy.MM.dd').format(visitDate), style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+                  ],
+                ),
+                if (taggedFriends.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.people_rounded, size: 12, color: AppColors.primary),
+                        const SizedBox(width: 4),
+                        Expanded(child: Text(taggedFriends.join(", "), style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis)),
+                      ],
+                    ),
+                  ),
+                if (memo.isNotEmpty)
+                  Padding(padding: const EdgeInsets.only(top: 4.0), child: Text(memo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary))),
               ],
             ),
-            if (taggedFriends.isNotEmpty)
-               Text("With: ${taggedFriends.join(", ")}", style: const TextStyle(fontSize: 12, color: Colors.blue, fontWeight: FontWeight.w500)),
-            if (memo.isNotEmpty)
-              Padding(padding: const EdgeInsets.only(top: 4.0), child: Text(memo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13))),
-          ],
-        ),
-        onTap: () => _showEditSheet(doc),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildPlaceholderIcon() {
+    return Container(
+      width: 56, height: 56, 
+      decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(AppTheme.radiusMd)), 
+      child: const Icon(Icons.restaurant_rounded, color: AppColors.textTertiary),
     );
   }
 
@@ -443,7 +516,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: Row(
             children: [
-              const Text("전체 기록", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const Text("전체 기록", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, letterSpacing: -0.3)),
               const Spacer(),
               SegmentedButton<String>(
                 segments: const [
@@ -468,20 +541,15 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
         Expanded(
           child: filteredVisits.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.filter_list_off, size: 64, color: Colors.grey),
-                      const SizedBox(height: 16),
-                      const Text("해당하는 기록이 없어요.", style: TextStyle(color: Colors.grey, fontSize: 16)),
-                    ],
-                  ),
+              ? EmptyStateWidget(
+                  icon: Icons.filter_list_off_rounded,
+                  title: "해당하는 기록이 없어요",
+                  subtitle: "필터 조건을 변경해보세요",
                 )
               : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
                   itemCount: filteredVisits.length,
-                  separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+                  separatorBuilder: (ctx, i) => const SizedBox(height: 10),
                   itemBuilder: (context, index) => _buildListItem(filteredVisits[index]),
                 ),
         ),
@@ -495,12 +563,18 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
     if (user == null || (user.isAnonymous && user.displayName == null)) {
       return Scaffold(
+        backgroundColor: AppColors.background,
         appBar: AppBar(title: const Text('방문 기록')),
-        body: const Center(child: Text('로그인 후 방문 기록을 확인해보세요!')),
+        body: EmptyStateWidget(
+          icon: Icons.login_rounded,
+          title: "로그인 후 방문 기록을 확인해보세요!",
+          subtitle: "맛집 방문 기록을 캘린더로 관리해요",
+        ),
       );
     }
 
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         title: _isSearching
             ? TextField(
@@ -509,15 +583,17 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 decoration: const InputDecoration(
                   hintText: "가게 이름, 메모 검색...",
                   border: InputBorder.none,
-                  hintStyle: TextStyle(color: Colors.grey),
+                  hintStyle: TextStyle(color: AppColors.textTertiary),
+                  fillColor: Colors.transparent,
+                  filled: true,
                 ),
-                style: const TextStyle(color: Colors.black),
+                style: const TextStyle(color: AppColors.textPrimary),
                 onChanged: _runSearch,
               )
-            : const Text('방문 기록', style: TextStyle(fontWeight: FontWeight.bold)),
+            : const Text('방문 기록'),
         actions: [
           IconButton(
-            icon: Icon(_isSearching ? Icons.close : Icons.search, color: Colors.black),
+            icon: Icon(_isSearching ? Icons.close_rounded : Icons.search_rounded, color: AppColors.textPrimary),
             onPressed: () {
               setState(() {
                 _isSearching = !_isSearching;
@@ -536,13 +612,17 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   if (!_isListView)
                     TextButton(
                       onPressed: () { setState(() { _focusedDay = DateTime.now(); _selectedDay = DateTime.now(); }); },
-                      style: TextButton.styleFrom(backgroundColor: Colors.grey[100], shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
-                      child: const Text("오늘", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                      style: TextButton.styleFrom(
+                        backgroundColor: AppColors.primarySurface, 
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusFull)), 
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      ),
+                      child: const Text("오늘", style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 13)),
                     ),
                   const SizedBox(width: 8),
                   IconButton(
                     onPressed: () { setState(() { _isListView = !_isListView; }); },
-                    icon: Icon(_isListView ? Icons.calendar_month : Icons.list_alt, color: Colors.black),
+                    icon: Icon(_isListView ? Icons.calendar_month_rounded : Icons.list_alt_rounded, color: AppColors.textPrimary),
                     tooltip: _isListView ? "달력 보기" : "전체 목록 보기",
                   ),
                 ],
@@ -557,15 +637,15 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
           if (_isSearching) {
             if (_searchResults.isEmpty && _searchController.text.isNotEmpty) {
-              return const Center(child: Text("검색 결과가 없습니다.", style: TextStyle(color: Colors.grey)));
+              return EmptyStateWidget(icon: Icons.search_off_rounded, title: "검색 결과가 없습니다");
             }
             if (_searchResults.isEmpty && _searchController.text.isEmpty) {
-               return const Center(child: Text("검색어를 입력하세요.", style: TextStyle(color: Colors.grey)));
+              return EmptyStateWidget(icon: Icons.search_rounded, title: "검색어를 입력하세요");
             }
             return ListView.separated(
               padding: const EdgeInsets.all(16),
               itemCount: _searchResults.length,
-              separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+              separatorBuilder: (ctx, i) => const SizedBox(height: 10),
               itemBuilder: (context, index) => _buildListItem(_searchResults[index]),
             );
           }
@@ -590,28 +670,48 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   onFormatChanged: (format) { if (_calendarFormat != format) setState(() => _calendarFormat = format); },
                   onPageChanged: (focusedDay) { setState(() { _focusedDay = focusedDay; }); },
                   onHeaderTapped: (_) => _selectYearMonth(context),
-                  headerStyle: const HeaderStyle(titleCentered: true, formatButtonVisible: false, titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w800), rightChevronIcon: Icon(Icons.chevron_right, color: Colors.black), leftChevronIcon: Icon(Icons.chevron_left, color: Colors.black)),
-                  calendarStyle: const CalendarStyle(todayDecoration: BoxDecoration(color: Colors.black54, shape: BoxShape.circle), selectedDecoration: BoxDecoration(color: Colors.black, shape: BoxShape.circle), markerDecoration: BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle)),
+                  headerStyle: const HeaderStyle(
+                    titleCentered: true, 
+                    formatButtonVisible: false, 
+                    titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3), 
+                    rightChevronIcon: Icon(Icons.chevron_right_rounded, color: AppColors.textPrimary), 
+                    leftChevronIcon: Icon(Icons.chevron_left_rounded, color: AppColors.textPrimary),
+                  ),
+                  calendarStyle: CalendarStyle(
+                    todayDecoration: BoxDecoration(color: AppColors.primary.withOpacity(0.3), shape: BoxShape.circle), 
+                    selectedDecoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle), 
+                    markerDecoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                    markerSize: 6,
+                    todayTextStyle: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700),
+                    selectedTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                  ),
                 ),
-                const Divider(height: 1, thickness: 1),
+                Container(height: 1, color: AppColors.divider),
                 Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Row(
                     children: [
-                      Text(DateFormat('yyyy년 M월', 'ko_KR').format(_focusedDay), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      const Text('의 맛집들', style: TextStyle(fontSize: 18, fontWeight: FontWeight.normal)),
+                      Text(DateFormat('yyyy년 M월', 'ko_KR').format(_focusedDay), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+                      const Text('의 맛집들', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
                       const SizedBox(width: 8),
-                      Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(12)), child: Text('${monthVisits.length}곳', style: TextStyle(color: Colors.grey[700], fontSize: 13, fontWeight: FontWeight.bold))),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3), 
+                        decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppTheme.radiusFull)), 
+                        child: Text('${monthVisits.length}곳', style: const TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w700)),
+                      ),
                     ],
                   ),
                 ),
                 Expanded(
                   child: monthVisits.isEmpty
-                      ? Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.no_meals_outlined, size: 64, color: Colors.grey), const SizedBox(height: 16), Text(_getEmptyMessage(), textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[600], fontSize: 16))]))
+                      ? EmptyStateWidget(
+                          icon: Icons.no_meals_rounded,
+                          title: _getEmptyMessage(),
+                        )
                       : ListView.separated(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
                           itemCount: monthVisits.length,
-                          separatorBuilder: (context, index) => const Divider(),
+                          separatorBuilder: (context, index) => const SizedBox(height: 10),
                           itemBuilder: (context, index) => _buildListItem(monthVisits[index]),
                         ),
                 ),
@@ -619,7 +719,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             );
           }
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
         error: (error, stack) => Center(child: Text('오류 발생: $error')),
       ),
     );

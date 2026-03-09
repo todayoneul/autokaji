@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:autokaji/theme/app_colors.dart';
+import 'package:autokaji/theme/app_theme.dart';
+import 'package:autokaji/widgets/common_widgets.dart';
 
 class SignupScreen extends StatefulWidget {
   final VoidCallback onLoginScreenTap;
@@ -28,7 +31,6 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
-  // [신규] 비밀번호 복잡도 검사 함수
   String? _validatePassword(String? value) {
     if (value == null || value.isEmpty) {
       return '비밀번호를 입력하세요.';
@@ -36,11 +38,9 @@ class _SignupScreenState extends State<SignupScreen> {
     if (value.length < 8) {
       return '비밀번호는 8자리 이상이어야 합니다.';
     }
-    // 대문자 포함 확인
     if (!RegExp(r'(?=.*[A-Z])').hasMatch(value)) {
       return '대문자를 최소 1개 포함해야 합니다.';
     }
-    // 특수문자 포함 확인
     if (!RegExp(r'(?=.*[!@#\$&*~])').hasMatch(value)) {
       return '특수문자(!@#\$&*~)를 최소 1개 포함해야 합니다.';
     }
@@ -71,7 +71,7 @@ class _SignupScreenState extends State<SignupScreen> {
           'uid': userCredential.user!.uid,
           'createdAt': FieldValue.serverTimestamp(),
           'userType': 'member',
-          'nickname': '사용자', // 초기 닉네임
+          'nickname': '사용자',
         });
       }
       
@@ -97,112 +97,132 @@ class _SignupScreenState extends State<SignupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text('회원가입'),
-        backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 40),
-              TextFormField(
-                controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: '이메일',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email_outlined),
-                ),
-                keyboardType: TextInputType.emailAddress,
-                validator: (value) {
-                  if (value == null || !value.contains('@')) {
-                    return '올바른 이메일을 입력하세요.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: '비밀번호',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock_outline),
-                  helperText: "8자 이상, 대문자 및 특수문자 포함",
-                ),
-                obscureText: true,
-                validator: _validatePassword, // [수정] 강화된 검사 로직 적용
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _passwordConfirmController,
-                decoration: const InputDecoration(
-                  labelText: '비밀번호 확인',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock_outline),
-                ),
-                obscureText: true,
-                validator: (value) {
-                  if (value != _passwordController.text) {
-                    return '비밀번호가 일치하지 않습니다.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 32),
-
-              if (_errorMessage.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16.0),
-                  child: Text(
-                    _errorMessage,
-                    style: const TextStyle(color: Colors.red),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-
-              ElevatedButton(
-                onPressed: _isLoading ? null : _handleSignup,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                      )
-                    : const Text('회원가입', style: TextStyle(fontSize: 16)),
-              ),
-              
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('이미 계정이 있으신가요?'),
-                  TextButton(
-                    onPressed: widget.onLoginScreenTap,
-                    child: const Text(
-                      '로그인하기',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 48),
+                
+                // 헤더
+                Column(
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        gradient: AppColors.secondaryGradient,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+                        boxShadow: AppTheme.shadowLg,
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.person_add_rounded, size: 36, color: Colors.white),
                       ),
                     ),
+                    const SizedBox(height: 20),
+                    const Text("회원가입", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1, color: AppColors.textPrimary)),
+                    const SizedBox(height: 6),
+                    const Text("맛집 기록의 시작!", style: TextStyle(fontSize: 15, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
+                  ],
+                ),
+                
+                const SizedBox(height: 48),
+                TextFormField(
+                  controller: _emailController,
+                  decoration: InputDecoration(
+                    labelText: '이메일',
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    filled: true,
+                    fillColor: AppColors.surfaceVariant,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: BorderSide.none),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
                   ),
-                ],
-              ),
-            ],
+                  keyboardType: TextInputType.emailAddress,
+                  validator: (value) {
+                    if (value == null || !value.contains('@')) {
+                      return '올바른 이메일을 입력하세요.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _passwordController,
+                  decoration: InputDecoration(
+                    labelText: '비밀번호',
+                    prefixIcon: const Icon(Icons.lock_outline_rounded),
+                    helperText: "8자 이상, 대문자 및 특수문자 포함",
+                    helperStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                    filled: true,
+                    fillColor: AppColors.surfaceVariant,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: BorderSide.none),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
+                  ),
+                  obscureText: true,
+                  validator: _validatePassword,
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _passwordConfirmController,
+                  decoration: InputDecoration(
+                    labelText: '비밀번호 확인',
+                    prefixIcon: const Icon(Icons.lock_outline_rounded),
+                    filled: true,
+                    fillColor: AppColors.surfaceVariant,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: BorderSide.none),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
+                  ),
+                  obscureText: true,
+                  validator: (value) {
+                    if (value != _passwordController.text) {
+                      return '비밀번호가 일치하지 않습니다.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 28),
+
+                if (_errorMessage.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.error.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(_errorMessage, style: const TextStyle(color: AppColors.error, fontSize: 13))),
+                      ],
+                    ),
+                  ),
+
+                AppGradientButton(
+                  text: '회원가입',
+                  isLoading: _isLoading,
+                  onPressed: _isLoading ? null : _handleSignup,
+                  gradient: AppColors.secondaryGradient,
+                ),
+                
+                const SizedBox(height: 28),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('이미 계정이 있으신가요?', style: TextStyle(color: AppColors.textSecondary)),
+                    TextButton(
+                      onPressed: widget.onLoginScreenTap,
+                      child: const Text('로그인하기', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),

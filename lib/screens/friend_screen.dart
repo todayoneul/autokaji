@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:autokaji/screens/friend_visit_screen.dart';
+import 'package:autokaji/theme/app_colors.dart';
+import 'package:autokaji/theme/app_theme.dart';
+import 'package:autokaji/widgets/common_widgets.dart';
 
 class FriendScreen extends StatefulWidget {
   const FriendScreen({super.key});
@@ -14,7 +17,6 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
   late TabController _tabController;
   final TextEditingController _searchController = TextEditingController();
   
-  // [수정] 검색 결과를 리스트로 관리 (동명이인 처리)
   List<Map<String, dynamic>> _searchResults = [];
   
   bool _isSearching = false;
@@ -33,27 +35,24 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
-  // [수정] 통합 검색 로직 (이메일 or 닉네임)
   Future<void> _searchUser() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
 
     setState(() {
       _isSearching = true;
-      _searchResults = []; // 초기화
+      _searchResults = [];
     });
 
     try {
       QuerySnapshot snapshot;
 
-      // 1. '@'가 포함되어 있으면 이메일 검색
       if (query.contains('@')) {
         snapshot = await FirebaseFirestore.instance
             .collection('users')
             .where('email', isEqualTo: query)
             .get();
       } 
-      // 2. 아니면 닉네임 검색
       else {
         snapshot = await FirebaseFirestore.instance
             .collection('users')
@@ -64,11 +63,10 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
       final List<Map<String, dynamic>> results = [];
 
       for (var doc in snapshot.docs) {
-        // 본인은 검색 결과에서 제외
         if (doc.id == _currentUser?.uid) continue;
 
         final data = doc.data() as Map<String, dynamic>;
-        data['uid'] = doc.id; // UID 포함
+        data['uid'] = doc.id;
         results.add(data);
       }
 
@@ -87,12 +85,10 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
     }
   }
 
-  // 친구 요청 보내기
   Future<void> _sendFriendRequest(String targetUid, String targetNickname, String targetEmail) async {
     try {
       final myUid = _currentUser!.uid;
 
-      // 1. 이미 친구인지 확인
       final friendCheck = await FirebaseFirestore.instance
           .collection('users')
           .doc(myUid)
@@ -105,7 +101,6 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
         return;
       }
 
-      // 2. 이미 요청을 보냈는지 확인
       final sentCheck = await FirebaseFirestore.instance
           .collection('friend_requests')
           .where('fromUid', isEqualTo: myUid)
@@ -117,7 +112,6 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
         return;
       }
 
-      // 3. 상대방이 이미 보냈는지 확인
       final receivedCheck = await FirebaseFirestore.instance
           .collection('friend_requests')
           .where('fromUid', isEqualTo: targetUid)
@@ -129,7 +123,6 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
         return;
       }
 
-      // 4. 요청 전송
       final myDoc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
       final myNickname = myDoc.data()?['nickname'] ?? '알 수 없음';
 
@@ -146,7 +139,6 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
 
       if(mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("친구 요청을 보냈습니다!")));
-        // 검색 결과 유지 (다른 사람도 추가할 수 있으므로)
       }
     } catch (e) {
       debugPrint("요청 오류: $e");
@@ -183,12 +175,11 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text("친구 관리", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text("친구 관리"),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.black,
-          indicatorColor: Colors.black,
           tabs: const [
             Tab(text: "내 친구"),
             Tab(text: "받은 요청"),
@@ -207,57 +198,67 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
                 child: TextField(
                   controller: _searchController,
                   decoration: InputDecoration(
-                    hintText: "이메일 또는 닉네임 검색", // [수정] 힌트 변경
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    hintText: "이메일 또는 닉네임 검색",
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    filled: true,
+                    fillColor: AppColors.surfaceVariant,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: BorderSide.none),
                     suffixIcon: IconButton(
-                      icon: const Icon(Icons.search),
-                      onPressed: _searchUser, // [수정] 함수 연결
+                      icon: const Icon(Icons.search_rounded, color: AppColors.primary),
+                      onPressed: _searchUser,
                     ),
                   ),
                   onSubmitted: (_) => _searchUser(),
                 ),
               ),
               
-              if (_isSearching) const LinearProgressIndicator(color: Colors.black),
+              if (_isSearching) const LinearProgressIndicator(color: AppColors.primary),
 
-              // [수정] 검색 결과 리스트 (여러 명일 수 있음)
               if (_searchResults.isNotEmpty)
                 Container(
-                  constraints: const BoxConstraints(maxHeight: 200), // 결과창 높이 제한
+                  constraints: const BoxConstraints(maxHeight: 200),
                   margin: const EdgeInsets.symmetric(horizontal: 16),
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
-                    borderRadius: BorderRadius.circular(12),
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                    border: Border.all(color: AppColors.borderLight),
+                    boxShadow: AppTheme.shadowMd,
                   ),
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: _searchResults.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.divider),
                     itemBuilder: (context, index) {
                       final user = _searchResults[index];
                       return ListTile(
-                        leading: const CircleAvatar(child: Icon(Icons.person)),
-                        title: Text(user['nickname'] ?? '이름 없음', style: const TextStyle(fontWeight: FontWeight.bold)),
-                        // [중요] 이메일을 함께 표시하여 구분
-                        subtitle: Text(user['email'] ?? '', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                        leading: Container(
+                          width: 40, height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.primarySurface,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.person_rounded, color: AppColors.primary, size: 22),
+                        ),
+                        title: Text(user['nickname'] ?? '이름 없음', style: const TextStyle(fontWeight: FontWeight.w700)),
+                        subtitle: Text(user['email'] ?? '', style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
                         trailing: ElevatedButton(
                           onPressed: () => _sendFriendRequest(user['uid'], user['nickname'] ?? '이름 없음', user['email'] ?? ''),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.black, 
+                            backgroundColor: AppColors.primary, 
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                             minimumSize: Size.zero,
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusFull)),
                           ),
-                          child: const Text("신청", style: TextStyle(fontSize: 12)),
+                          child: const Text("신청", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                         ),
                       );
                     },
                   ),
                 ),
 
-              const Divider(),
+              const SizedBox(height: 8),
               
               // 내 친구 리스트
               Expanded(
@@ -269,15 +270,21 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
                       .orderBy('createdAt', descending: true)
                       .snapshots(),
                   builder: (context, snapshot) {
-                    if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                    if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: AppColors.primary));
                     final friends = snapshot.data!.docs;
 
                     if (friends.isEmpty) {
-                      return const Center(child: Text("아직 등록된 친구가 없습니다.", style: TextStyle(color: Colors.grey)));
+                      return EmptyStateWidget(
+                        icon: Icons.people_outline_rounded,
+                        title: "아직 등록된 친구가 없습니다",
+                        subtitle: "위 검색창에서 친구를 찾아보세요!",
+                      );
                     }
 
-                    return ListView.builder(
+                    return ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: friends.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final friendRelData = friends[index].data() as Map<String, dynamic>;
                         final String friendUid = friendRelData['uid'];
@@ -291,13 +298,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
                             final String nickname = userData?['nickname'] ?? '알 수 없음';
                             final String email = userData?['email'] ?? '';
 
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: Colors.grey[200],
-                                child: const Icon(Icons.person, color: Colors.grey),
-                              ),
-                              title: Text(nickname, style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text(email),
+                            return AppCard(
                               onTap: () {
                                 Navigator.push(
                                   context,
@@ -309,6 +310,31 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
                                   ),
                                 );
                               },
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 44, height: 44,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.surfaceVariant,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.person_rounded, color: AppColors.textSecondary, size: 24),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(nickname, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                                        const SizedBox(height: 2),
+                                        Text(email, style: const TextStyle(color: AppColors.textTertiary, fontSize: 13)),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: AppColors.textTertiary),
+                                ],
+                              ),
                             );
                           },
                         );
@@ -320,40 +346,88 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
             ],
           ),
 
-          // 받은 요청 목록 (기존과 동일)
+          // 받은 요청 목록
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
                 .collection('friend_requests')
                 .where('toUid', isEqualTo: _currentUser!.uid)
                 .snapshots(),
             builder: (context, snapshot) {
-              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: AppColors.primary));
               final requests = snapshot.data!.docs;
 
               if (requests.isEmpty) {
-                return const Center(child: Text("받은 친구 요청이 없습니다.", style: TextStyle(color: Colors.grey)));
+                return EmptyStateWidget(
+                  icon: Icons.mail_outline_rounded,
+                  title: "받은 친구 요청이 없습니다",
+                );
               }
 
-              return ListView.builder(
+              return ListView.separated(
+                padding: const EdgeInsets.all(16),
                 itemCount: requests.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, index) {
                   final reqDoc = requests[index];
                   final reqData = reqDoc.data() as Map<String, dynamic>;
 
-                  return ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.person_add)),
-                    title: Text("${reqData['fromNickname']}님의 친구 요청"),
-                    subtitle: Text(reqData['fromEmail']),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
+                  return AppCard(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        IconButton(
-                          icon: const Icon(Icons.check, color: Colors.green),
-                          onPressed: () => _acceptRequest(reqDoc),
+                        Row(
+                          children: [
+                            Container(
+                              width: 44, height: 44,
+                              decoration: BoxDecoration(
+                                color: AppColors.primarySurface,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.person_add_rounded, color: AppColors.primary, size: 22),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text("${reqData['fromNickname']}님의 친구 요청", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                                  const SizedBox(height: 2),
+                                  Text(reqData['fromEmail'] ?? '', style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.red),
-                          onPressed: () => _rejectRequest(reqDoc.id),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => _rejectRequest(reqDoc.id),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.textSecondary,
+                                  side: const BorderSide(color: AppColors.border),
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
+                                ),
+                                child: const Text("거절"),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () => _acceptRequest(reqDoc),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
+                                ),
+                                child: const Text("수락"),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

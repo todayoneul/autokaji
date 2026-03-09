@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:crypto/crypto.dart'; // [신규] 비밀번호 생성을 위한 암호화 패키지
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,6 +7,9 @@ import 'package:google_sign_in/google_sign_in.dart' as google_pkg;
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
+import 'package:autokaji/theme/app_colors.dart';
+import 'package:autokaji/theme/app_theme.dart';
+import 'package:autokaji/widgets/common_widgets.dart';
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onSignupScreenTap;
@@ -62,13 +65,11 @@ class _LoginScreenState extends State<LoginScreen> {
     await userRef.set(data, SetOptions(merge: true));
   }
 
-  // [신규] 카카오 ID 기반 비밀번호 생성기 (보안용 Salt 사용)
   String _generateSecurePassword(String kakaoId) {
-    // 앱만의 비밀키 (외부 유출 금지)
     const String salt = "AUTOKAJI_SECURE_SALT_v1"; 
     final bytes = utf8.encode(kakaoId + salt);
     final digest = sha256.convert(bytes);
-    return digest.toString().substring(0, 20); // 20자리 비밀번호 생성
+    return digest.toString().substring(0, 20);
   }
 
   Future<void> _handleLogin() async {
@@ -129,7 +130,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // [핵심 수정] 카카오 로그인 -> 이메일/비번 방식으로 변환
   Future<void> _handleKakaoLogin() async {
     setState(() { _isLoading = true; _errorMessage = ''; });
 
@@ -147,43 +147,36 @@ class _LoginScreenState extends State<LoginScreen> {
 
       kakao.User kakaoUser = await kakao.UserApi.instance.me();
       
-      // 1. 카카오 정보 추출
-      // 이메일이 없으면 가짜 이메일 생성 (ID 기반)
       final String email = kakaoUser.kakaoAccount?.email ?? 'kakao_${kakaoUser.id}@autokaji.com';
       final String password = _generateSecurePassword(kakaoUser.id.toString());
       final String nickname = kakaoUser.kakaoAccount?.profile?.nickname ?? '카카오 사용자';
 
       UserCredential? userCredential;
 
-      // 2. Firebase 로그인 시도
       try {
         userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: email,
           password: password,
         );
       } on FirebaseAuthException catch (e) {
-        // 3. 계정이 없으면 회원가입 시도
         if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
           userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
             email: email,
             password: password,
           );
         } else {
-          throw e; // 다른 오류는 던짐
+          throw e;
         }
       }
 
-      // 4. 성공 처리
       if (userCredential != null && userCredential.user != null) {
         User firebaseUser = userCredential.user!;
         
-        // 프로필 이름 업데이트
         if (firebaseUser.displayName != nickname) {
           await firebaseUser.updateDisplayName(nickname);
           await firebaseUser.reload();
         }
 
-        // DB 저장
         await _saveUserToFirestore(
           firebaseUser, 'kakao',
           email: email,
@@ -216,55 +209,154 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(title: const Text('로그인'), backgroundColor: Colors.white, elevation: 0),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: AutofillGroup(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 40),
-                TextFormField(
-                  controller: _emailController,
-                  autofillHints: const [AutofillHints.email], 
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(labelText: '이메일', border: OutlineInputBorder(), prefixIcon: Icon(Icons.email_outlined)),
-                  validator: (v) => (v == null || !v.contains('@')) ? '올바른 이메일 입력' : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _passwordController,
-                  autofillHints: const [AutofillHints.password], 
-                  obscureText: true,
-                  textInputAction: TextInputAction.done,
-                  onEditingComplete: _handleLogin,
-                  decoration: const InputDecoration(labelText: '비밀번호', border: OutlineInputBorder(), prefixIcon: Icon(Icons.lock_outline)),
-                  validator: (v) => (v == null || v.isEmpty) ? '비밀번호 입력' : null,
-                ),
-                Row(children: [
-                  Checkbox(value: _isAutoLogin, activeColor: Colors.black, onChanged: (v) => setState(() => _isAutoLogin = v ?? false)),
-                  const Text("자동 로그인"),
-                ]),
-                const SizedBox(height: 16),
-                if (_errorMessage.isNotEmpty) Padding(padding: const EdgeInsets.only(bottom: 16.0), child: Text(_errorMessage, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center)),
-                ElevatedButton(onPressed: _isLoading ? null : _handleLogin, style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 50), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))), child: _isLoading ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) : const Text('로그인', style: TextStyle(fontSize: 16))),
-                const SizedBox(height: 20),
-                const Row(children: [Expanded(child: Divider()), Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text("또는", style: TextStyle(color: Colors.grey))), Expanded(child: Divider())]),
-                const SizedBox(height: 20),
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  _socialButton(onTap: _handleGoogleLogin, color: Colors.white, borderColor: Colors.grey[300]!, child: const Text("G", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue))),
-                  const SizedBox(width: 16),
-                  _socialButton(onTap: _handleKakaoLogin, color: const Color(0xFFFEE500), borderColor: const Color(0xFFFEE500), child: const Icon(Icons.chat_bubble, color: Colors.black, size: 24)),
-                ]),
-                const SizedBox(height: 40),
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [const Text('계정이 없으신가요?'), TextButton(onPressed: widget.onSignupScreenTap, child: const Text('회원가입하기', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)))]),
-                const SizedBox(height: 20), const Divider(), const SizedBox(height: 10),
-                TextButton(onPressed: _isLoading ? null : _handleGuestLogin, child: const Text('로그인 없이 둘러보기', style: TextStyle(color: Colors.grey, fontSize: 16, decoration: TextDecoration.underline))),
-              ],
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28.0),
+          child: AutofillGroup(
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 48),
+                  
+                  // 로고 영역
+                  Column(
+                    children: [
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          gradient: AppColors.primaryGradient,
+                          borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+                          boxShadow: AppTheme.shadowPrimary,
+                        ),
+                        child: const Center(
+                          child: Text("🍽️", style: TextStyle(fontSize: 40)),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text("오토카지", style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, letterSpacing: -1, color: AppColors.textPrimary)),
+                      const SizedBox(height: 6),
+                      const Text("오늘의 맛집, 자동으로 카지!", style: TextStyle(fontSize: 15, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 48),
+                  
+                  TextFormField(
+                    controller: _emailController,
+                    autofillHints: const [AutofillHints.email], 
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    decoration: InputDecoration(
+                      labelText: '이메일',
+                      prefixIcon: const Icon(Icons.email_outlined),
+                      filled: true,
+                      fillColor: AppColors.surfaceVariant,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: BorderSide.none),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
+                    ),
+                    validator: (v) => (v == null || !v.contains('@')) ? '올바른 이메일 입력' : null,
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _passwordController,
+                    autofillHints: const [AutofillHints.password], 
+                    obscureText: true,
+                    textInputAction: TextInputAction.done,
+                    onEditingComplete: _handleLogin,
+                    decoration: InputDecoration(
+                      labelText: '비밀번호',
+                      prefixIcon: const Icon(Icons.lock_outline_rounded),
+                      filled: true,
+                      fillColor: AppColors.surfaceVariant,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: BorderSide.none),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
+                    ),
+                    validator: (v) => (v == null || v.isEmpty) ? '비밀번호 입력' : null,
+                  ),
+                  
+                  Row(children: [
+                    Checkbox(
+                      value: _isAutoLogin, 
+                      activeColor: AppColors.primary, 
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                      onChanged: (v) => setState(() => _isAutoLogin = v ?? false),
+                    ),
+                    const Text("자동 로그인", style: TextStyle(color: AppColors.textSecondary)),
+                  ]),
+                  
+                  const SizedBox(height: 8),
+                  
+                  if (_errorMessage.isNotEmpty) 
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: AppColors.error.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(_errorMessage, style: const TextStyle(color: AppColors.error, fontSize: 13))),
+                        ],
+                      ),
+                    ),
+                  
+                  AppGradientButton(
+                    text: '로그인',
+                    isLoading: _isLoading,
+                    onPressed: _isLoading ? null : _handleLogin,
+                  ),
+                  
+                  const SizedBox(height: 28),
+                  const Row(children: [
+                    Expanded(child: Divider(color: AppColors.border)),
+                    Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text("간편 로그인", style: TextStyle(color: AppColors.textTertiary, fontSize: 13, fontWeight: FontWeight.w500))),
+                    Expanded(child: Divider(color: AppColors.border)),
+                  ]),
+                  const SizedBox(height: 24),
+                  
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    _socialButton(
+                      onTap: _handleGoogleLogin, 
+                      color: Colors.white, 
+                      borderColor: AppColors.border, 
+                      child: const Text("G", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.google)),
+                      label: "Google",
+                    ),
+                    const SizedBox(width: 20),
+                    _socialButton(
+                      onTap: _handleKakaoLogin, 
+                      color: AppColors.kakao, 
+                      borderColor: AppColors.kakao, 
+                      child: const Icon(Icons.chat_bubble_rounded, color: AppColors.kakaoText, size: 22),
+                      label: "카카오",
+                    ),
+                  ]),
+                  
+                  const SizedBox(height: 36),
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    const Text('계정이 없으신가요?', style: TextStyle(color: AppColors.textSecondary)),
+                    TextButton(
+                      onPressed: widget.onSignupScreenTap, 
+                      child: const Text('회원가입하기', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                    ),
+                  ]),
+                  
+                  const SizedBox(height: 8),
+                  Center(
+                    child: TextButton(
+                      onPressed: _isLoading ? null : _handleGuestLogin, 
+                      child: const Text('로그인 없이 둘러보기', style: TextStyle(color: AppColors.textTertiary, fontSize: 14, decoration: TextDecoration.underline, decorationColor: AppColors.textTertiary)),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -272,7 +364,26 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _socialButton({required VoidCallback onTap, required Color color, required Color borderColor, required Widget child}) {
-    return InkWell(onTap: _isLoading ? null : onTap, child: Container(width: 50, height: 50, decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: borderColor), boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 4, offset: const Offset(0, 2))]), child: Center(child: child)));
+  Widget _socialButton({required VoidCallback onTap, required Color color, required Color borderColor, required Widget child, required String label}) {
+    return GestureDetector(
+      onTap: _isLoading ? null : onTap, 
+      child: Column(
+        children: [
+          Container(
+            width: 56, 
+            height: 56, 
+            decoration: BoxDecoration(
+              color: color, 
+              shape: BoxShape.circle, 
+              border: Border.all(color: borderColor, width: 1.5), 
+              boxShadow: AppTheme.shadowSm,
+            ), 
+            child: Center(child: child),
+          ),
+          const SizedBox(height: 6),
+          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textTertiary, fontWeight: FontWeight.w500)),
+        ],
+      ),
+    );
   }
 }

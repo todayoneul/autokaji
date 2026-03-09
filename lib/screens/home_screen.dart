@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/cupertino.dart'; // iOS 스타일 로딩 인디케이터용
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // [신규] 햅틱 피드백용
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -13,6 +14,9 @@ import 'package:autokaji/screens/friend_screen.dart';
 import 'package:autokaji/screens/tag_notification_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:autokaji/providers/location_provider.dart';
+import 'package:autokaji/theme/app_colors.dart';
+import 'package:autokaji/theme/app_theme.dart';
+import 'package:autokaji/widgets/common_widgets.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   final Function(String name, double lat, double lng) onPlaceSelected;
@@ -96,16 +100,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text("새로운 알림 🔔"),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXxl)),
+            title: const Text("새로운 알림 🔔", style: TextStyle(fontWeight: FontWeight.w800)),
             content: Text("${snapshot.docs.length}건의 태그 요청이 도착했습니다."),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기")),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("닫기", style: TextStyle(color: AppColors.textSecondary))),
               ElevatedButton(
                 onPressed: () {
                   Navigator.pop(ctx);
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const TagNotificationScreen()));
                 },
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white),
+                style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, foregroundColor: Colors.white),
                 child: const Text("확인"),
               ),
             ],
@@ -132,7 +137,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     try {
       // 2. 구글 장소 검색 (Find Place API 사용 - 비용 효율적)
-      // textquery: 가게 이름, locationbias: 내 위치 근처 우선
       final url = 'https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=$storeName&inputtype=textquery&fields=photos&locationbias=circle:1000@$lat,$lng&key=$kGoogleApiKey';
       
       final response = await http.get(Uri.parse(url));
@@ -232,12 +236,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         final data = json.decode(response.body);
         
         if (data['status'] == 'OK' || data['status'] == 'ZERO_RESULTS') {
-          final List<dynamic> results = data['results'];
+          final List<dynamic> results = data['results'] ?? [];
           
           final List<dynamic> filteredResults = results.where((place) {
             final double rating = (place['rating'] ?? 0).toDouble();
-            return rating >= _minRating;
+            final int reviews = place['user_ratings_total'] ?? 0;
+            return rating >= _minRating && reviews >= 10;
           }).toList();
+
+          filteredResults.sort((a, b) {
+             final double scoreA = (a['rating'] ?? 0).toDouble() * (a['user_ratings_total'] ?? 0);
+             final double scoreB = (b['rating'] ?? 0).toDouble() * (b['user_ratings_total'] ?? 0);
+             return scoreB.compareTo(scoreA);
+          });
 
           _searchResults = filteredResults;
           _nextPageToken = data['next_page_token'];
@@ -276,18 +287,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['status'] == 'OK') {
-          final List<dynamic> results = data['results'];
-          
+          final List<dynamic> results = data['results'] ?? [];
+
           final List<dynamic> filteredResults = results.where((place) {
             final double rating = (place['rating'] ?? 0).toDouble();
-            return rating >= _minRating;
+            final int reviews = place['user_ratings_total'] ?? 0;
+            return rating >= _minRating && reviews >= 10;
           }).toList();
+
+          filteredResults.sort((a, b) {
+             final double scoreA = (a['rating'] ?? 0).toDouble() * (a['user_ratings_total'] ?? 0);
+             final double scoreB = (b['rating'] ?? 0).toDouble() * (b['user_ratings_total'] ?? 0);
+             return scoreB.compareTo(scoreA); 
+          });
 
           setState(() {
             _searchResults.addAll(filteredResults);
             _nextPageToken = data['next_page_token'];
-          });
-        } else if (data['status'] == 'INVALID_REQUEST') {
+          });        } else if (data['status'] == 'INVALID_REQUEST') {
           await Future.delayed(const Duration(seconds: 1));
           _isFetchingMore = false; 
           await _fetchNextPage(); 
@@ -305,74 +322,67 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXxl)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // [수정] 미리보기에서도 구글 사진 로딩
             ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
               child: FutureBuilder<String?>(
                 future: _fetchGooglePlacePhoto(place['name'], place['lat'], place['lng']),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return Container(height: 200, color: Colors.grey[100], child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey)));
+                    return Container(height: 200, color: AppColors.surfaceVariant, child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)));
                   }
                   if (snapshot.hasData && snapshot.data != null) {
-                    return Image.network(snapshot.data!, height: 200, width: double.infinity, fit: BoxFit.cover);
+                    return Stack(
+                      children: [
+                        Image.network(snapshot.data!, height: 200, width: double.infinity, fit: BoxFit.cover),
+                        Positioned.fill(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Colors.transparent, Colors.black.withOpacity(0.3)],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
                   }
-                  // 실패시 기본 이미지
-                  return Container(height: 200, color: Colors.grey[200], child: const Icon(Icons.store, size: 50, color: Colors.grey));
+                  return Container(height: 200, color: AppColors.surfaceVariant, child: Icon(Icons.store_rounded, size: 50, color: AppColors.textTertiary));
                 },
               ),
             ),
             
             Padding(
-              padding: const EdgeInsets.all(20.0),
+              padding: const EdgeInsets.all(24.0),
               child: Column(
                 children: [
-                  Text(place['name'], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                  Text(place['name'], style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.5), textAlign: TextAlign.center),
                   const SizedBox(height: 8),
                   
                   if (place['menu'] != null && place['menu'] != "메뉴 정보 없음")
                     Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(10),
                       margin: const EdgeInsets.only(bottom: 12),
-                      decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
-                      child: Text(place['menu'], style: const TextStyle(fontSize: 13, color: Colors.black87), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
+                      child: Text(place['menu'], style: const TextStyle(fontSize: 13, color: AppColors.textSecondary), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
                     ),
 
-                  const Text("인스타그램에서 이 핫플 구경하기", style: TextStyle(color: Colors.grey, fontSize: 12)),
                   const SizedBox(height: 12),
                   
                   SizedBox(
                     width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () => _launchInstagramSearch(place['name']),
-                      icon: const Icon(Icons.camera_alt, color: Colors.purple),
-                      label: const Text("Instagram 구경가기", style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold)),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        side: const BorderSide(color: Colors.purple),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
+                    child: AppGradientButton(
+                      text: "지도에서 위치 보기",
+                      icon: Icons.map_rounded,
                       onPressed: () {
                         Navigator.pop(context);
                         widget.onPlaceSelected(place['name'], place['lat'], place['lng']);
                       },
-                      icon: const Icon(Icons.map),
-                      label: const Text("지도에서 위치 보기"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black, 
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
                     ),
                   ),
                 ],
@@ -387,61 +397,79 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _showSelectionDialog(List<dynamic> filteredCandidates) {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
         return Container(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              const BottomSheetHandle(),
+              const SizedBox(height: 16),
               Text(
                 "🎉 ${_searchResults.length}곳 이상의 장소를 찾았어요!",
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.5),
               ),
               const SizedBox(height: 8),
-              Text(
-                "반경 ${_searchRadius.toInt()}m 이내, 별점 $_minRating↑",
-                style: const TextStyle(color: Colors.grey),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.primarySurface,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                ),
+                child: Text(
+                  "반경 ${_searchRadius.toInt()}m · 별점 $_minRating↑",
+                  style: const TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
               Row(
                 children: [
                   Expanded(
-                    child: ElevatedButton.icon(
+                    child: OutlinedButton.icon(
                       onPressed: () {
                         Navigator.pop(context);
                         _showResultList();
                       },
-                      icon: const Icon(Icons.list),
+                      icon: const Icon(Icons.list_rounded),
                       label: const Text("리스트 보기"),
-                      style: ElevatedButton.styleFrom(
+                      style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
-                        side: const BorderSide(color: Colors.grey),
+                        foregroundColor: AppColors.textPrimary,
+                        side: const BorderSide(color: AppColors.border),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg)),
                       ),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        if (filteredCandidates.isEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("별점 조건에 맞는 곳이 없어서 랜덤을 돌릴 수 없어요!")));
-                          return;
-                        }
-                        Navigator.pop(context);
-                        final random = Random();
-                        final selected = filteredCandidates[random.nextInt(filteredCandidates.length)];
-                        _showSingleResultDialog(selected); 
-                      },
-                      icon: const Icon(Icons.casino),
-                      label: const Text("랜덤 뽑기"),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        backgroundColor: Colors.black,
-                        foregroundColor: Colors.white,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: AppColors.primaryGradient,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                        boxShadow: AppTheme.shadowPrimary,
+                      ),
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          if (filteredCandidates.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("별점 조건에 맞는 곳이 없어서 랜덤을 돌릴 수 없어요!")));
+                            return;
+                          }
+                          Navigator.pop(context);
+                          final random = Random();
+                          final selected = filteredCandidates[random.nextInt(filteredCandidates.length)];
+                          _showSingleResultDialog(selected); 
+                        },
+                        icon: const Icon(Icons.casino_rounded),
+                        label: const Text("랜덤 뽑기"),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          backgroundColor: Colors.transparent,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shadowColor: Colors.transparent,
+                        ),
                       ),
                     ),
                   ),
@@ -458,8 +486,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
@@ -483,42 +511,78 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               builder: (context, _) {
                 return Column(
                   children: [
-                    const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: Text("추천 리스트 (무한 스크롤)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const BottomSheetHandle(),
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        children: [
+                          const Text("추천 리스트", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.primarySurface,
+                              borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                            ),
+                            child: Text("${_searchResults.length}곳", style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700)),
+                          ),
+                        ],
+                      ),
                     ),
                     Expanded(
                       child: ListView.separated(
                         controller: scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
                         itemCount: _searchResults.length + (_nextPageToken != null ? 1 : 0),
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           if (index == _searchResults.length) {
                             return const Padding(
                               padding: EdgeInsets.all(16.0),
-                              child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey)),
+                              child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)),
                             );
                           }
 
                           final place = _searchResults[index];
                           final double rating = (place['rating'] ?? 0).toDouble();
                           
-                          return ListTile(
-                            title: Text(place['name'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
-                            subtitle: Text(place['vicinity'] ?? ''),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.star, size: 16, color: Colors.amber),
-                                Text(" $rating", style: const TextStyle(color: Colors.black)),
-                              ],
-                            ),
+                          return AppCard(
                             onTap: () async {
                               final bool? selected = await _showSingleResultDialog(place);
                               if (selected == true) {
                                 Navigator.pop(context); 
                               }
                             },
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(place['name'], style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, letterSpacing: -0.3)),
+                                      const SizedBox(height: 4),
+                                      Text(place['vicinity'] ?? '', style: const TextStyle(color: AppColors.textTertiary, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.accentSurface,
+                                    borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.star_rounded, size: 16, color: AppColors.accent),
+                                      const SizedBox(width: 2),
+                                      Text("$rating", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.accent)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           );
                         },
                       ),
@@ -547,46 +611,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return showDialog<bool>(
       context: context,
       builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXxl)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (photoUrl != null)
               ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                child: Image.network(
-                  photoUrl,
-                  height: 180, width: double.infinity, fit: BoxFit.cover,
-                  errorBuilder: (ctx, err, stack) => Container(height: 150, color: Colors.grey[200], child: const Icon(Icons.broken_image)),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                child: Stack(
+                  children: [
+                    Image.network(
+                      photoUrl,
+                      height: 180, width: double.infinity, fit: BoxFit.cover,
+                      errorBuilder: (ctx, err, stack) => Container(height: 150, color: AppColors.surfaceVariant, child: const Icon(Icons.broken_image_rounded, color: AppColors.textTertiary)),
+                    ),
+                    Positioned.fill(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Colors.transparent, Colors.black.withOpacity(0.3)],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             Padding(
               padding: const EdgeInsets.all(24.0),
               child: Column(
                 children: [
-                  Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.star, color: Colors.amber, size: 20),
-                      Text(" $rating ", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      Text("($userRatingsTotal)", style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                    ],
+                  Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.5), textAlign: TextAlign.center),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.accentSurface,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star_rounded, color: AppColors.accent, size: 18),
+                        const SizedBox(width: 4),
+                        Text("$rating", style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.accent)),
+                        const SizedBox(width: 4),
+                        Text("($userRatingsTotal)", style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  Text(address, style: TextStyle(color: Colors.grey[600], fontSize: 13), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  Text(address, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 24),
                   
                   SizedBox(
                     width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () { 
-                        Navigator.pop(context, true); 
-                        widget.onPlaceSelected(name, lat, lng); 
+                    child: AppGradientButton(
+                      text: "여기 갈래요!",
+                      icon: Icons.place_rounded,
+                      onPressed: () {
+                        Navigator.pop(context, true);
+                        widget.onPlaceSelected(name, lat, lng);
                       },
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 14)),
-                      child: const Text("여기 갈래요!", style: TextStyle(fontSize: 16)),
                     ),
                   ),
                 ],
@@ -602,13 +690,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text("결과 없음"),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXxl)),
+        title: const Text("결과 없음", style: TextStyle(fontWeight: FontWeight.w800)),
         content: Text("조건($_searchRadius m, $_minRating점↑)에 맞는 곳이 없어요.\n네이버 지도로 찾아볼까요?"),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소")),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("취소", style: TextStyle(color: AppColors.textSecondary))),
           ElevatedButton(
             onPressed: () { Navigator.pop(ctx); _launchNaverMapSearch(query); },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF03C75A), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.naver, foregroundColor: Colors.white),
             child: const Text("네이버 지도로 찾기"),
           )
         ],
@@ -619,37 +708,66 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void _showFilterSettings() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
             return Container(
-              padding: const EdgeInsets.all(24),
-              height: 300,
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("검색 필터 설정", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 20),
-                  Text("검색 반경: ${_searchRadius.toInt()}m"),
+                  const BottomSheetHandle(),
+                  const SizedBox(height: 16),
+                  const Text("검색 필터 설정", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                  const SizedBox(height: 28),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("검색 반경", style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppTheme.radiusFull)),
+                        child: Text("${_searchRadius.toInt()}m", style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 14)),
+                      ),
+                    ],
+                  ),
                   Slider(
                     value: _searchRadius,
                     min: 100, max: 3000, divisions: 29,
                     label: "${_searchRadius.toInt()}m",
-                    activeColor: Colors.black,
                     onChanged: (val) => setModalState(() => _searchRadius = val),
                     onChangeEnd: (val) {
                       setState(() => _searchRadius = val);
                       _saveFilterSettings(); 
                     },
                   ),
-                  const SizedBox(height: 10),
-                  Text("최소 평점: $_minRating점 이상"),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("최소 평점", style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(color: AppColors.accentSurface, borderRadius: BorderRadius.circular(AppTheme.radiusFull)),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
+                            const SizedBox(width: 2),
+                            Text("$_minRating", style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700, fontSize: 14)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                   Slider(
                     value: _minRating,
                     min: 0.0, max: 5.0, divisions: 10,
                     label: "$_minRating",
-                    activeColor: Colors.amber,
+                    activeColor: AppColors.accent,
                     onChanged: (val) => setModalState(() => _minRating = val),
                     onChangeEnd: (val) {
                       setState(() => _minRating = val);
@@ -669,13 +787,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: Colors.grey[200],
-        borderRadius: BorderRadius.circular(16),
+        color: AppColors.surfaceVariant,
+        borderRadius: BorderRadius.circular(AppTheme.radiusXl),
       ),
       child: Row(
         children: [
-          _toggleButton("오늘 뭐 먹지", _isFoodMode, () => setState(() { _isFoodMode = true; _selectedMainCats.clear(); _selectedSubCats.clear(); })),
-          _toggleButton("오늘 뭐 하지", !_isFoodMode, () => setState(() { _isFoodMode = false; _selectedMainCats.clear(); _selectedSubCats.clear(); })),
+          _toggleButton("🍽️  뭐 먹지", _isFoodMode, () => setState(() { _isFoodMode = true; _selectedMainCats.clear(); _selectedSubCats.clear(); })),
+          _toggleButton("🎮  뭐 하지", !_isFoodMode, () => setState(() { _isFoodMode = false; _selectedMainCats.clear(); _selectedSubCats.clear(); })),
         ],
       ),
     );
@@ -686,15 +804,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       child: GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)] : [],
+            gradient: isSelected ? AppColors.primaryGradient : null,
+            color: isSelected ? null : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+            boxShadow: isSelected ? [BoxShadow(color: AppColors.primary.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 2))] : [],
           ),
           child: Center(
-            child: Text(text, style: TextStyle(color: isSelected ? Colors.black : Colors.grey[600], fontWeight: FontWeight.bold)),
+            child: Text(text, style: TextStyle(
+              color: isSelected ? Colors.white : AppColors.textSecondary, 
+              fontWeight: FontWeight.w700,
+              fontSize: 15,
+              letterSpacing: -0.3,
+            )),
           ),
         ),
       ),
@@ -703,32 +828,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildChoiceChip(String label, Set<String> selectionSet, VoidCallback onSelected) {
     final bool isSelected = selectionSet.contains(label);
-    return GestureDetector(
+    return AppSelectableChip(
+      label: label,
+      isSelected: isSelected,
       onTap: onSelected,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.black : Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: isSelected ? Colors.black : Colors.grey[300]!),
-          boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 4, offset: const Offset(0, 2))] : [],
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.black,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            fontSize: 14,
-          ),
-        ),
-      ),
     );
   }
 
   Widget _buildChipGrid(List<String> items, Set<String> selectionSet) {
     return Wrap(
-      spacing: 8, runSpacing: 12,
+      spacing: 10, runSpacing: 12,
       children: items.map((item) => _buildChoiceChip(item, selectionSet, () {
         setState(() {
           if (selectionSet.contains(item)) {
@@ -741,126 +850,205 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  // [수정] 핫플레이스 섹션 (사진 로딩 적용)
+  // [수정] 핫플레이스 섹션 (구글 API 실시간 검색 기반)
   Widget _buildHotPlaces() {
     final locationAsync = ref.watch(locationProvider);
 
-    return StreamBuilder<QuerySnapshot>(
-      stream: _getHotPlacesStream(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const SizedBox();
+    if (locationAsync.isLoading) {
+      return const SizedBox(height: 230, child: Center(child: CircularProgressIndicator(color: AppColors.primary)));
+    }
+    
+    if (locationAsync.hasError || !locationAsync.hasValue) {
+      return const SizedBox();
+    }
 
-        List<Map<String, dynamic>> places = [];
-        
-        for (var doc in snapshot.data!.docs) {
-          final data = doc.data() as Map<String, dynamic>;
-          final String category = data['category'] ?? '기타';
+    final pos = locationAsync.value!;
 
-          if (_isFoodMode) {
-            if (!_foodCategories.containsKey(category) && category != '기타') continue;
-          } else {
-            if (!_playCategories.containsKey(category) && category != '기타') continue;
-          }
-
-          double distance = 0.0;
-          if (locationAsync.hasValue && locationAsync.value != null && data['lat'] != null && data['lng'] != null) {
-            distance = Geolocator.distanceBetween(
-              locationAsync.value!.latitude, locationAsync.value!.longitude,
-              data['lat'], data['lng']
-            );
-          }
-
-          if (distance > _searchRadius) continue; // [수정] 5000 -> _searchRadius
+    // 구글 API 호출 Future 생성
+    Future<List<Map<String, dynamic>>> fetchNearbyHotPlaces() async {
+      final String type = _isFoodMode ? 'restaurant' : 'point_of_interest';
+      final String url = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${pos.latitude},${pos.longitude}&radius=${_searchRadius}&type=$type&language=ko&key=$kGoogleApiKey';
+      
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'OK') {
+          List<dynamic> results = data['results'];
           
-          double rating = (data['rating'] ?? 0).toDouble();
-          if (rating < _minRating) continue; // [신규] 평점 필터 적용
+          List<Map<String, dynamic>> places = [];
+          for (var place in results) {
+            double rating = (place['rating'] ?? 0).toDouble();
+            int reviews = place['user_ratings_total'] ?? 0;
+            
+            // 신뢰도 필터: 평점 4.0 이상, 리뷰 20개 이상 (핫플레이스 기준)
+            if (rating >= 4.0 && reviews >= 20) {
+              places.add({
+                'name': place['name'],
+                'lat': place['geometry']['location']['lat'],
+                'lng': place['geometry']['location']['lng'],
+                'rating': rating,
+                'user_ratings_total': reviews,
+                'category': place['types'] != null && place['types'].isNotEmpty ? place['types'][0] : '기타',
+                'place_id': place['place_id'],
+              });
+            }
+          }
 
-          data['distance'] = distance;
-          places.add(data);
+          // 신뢰도 점수(평점*리뷰수)로 정렬 후 상위 10개만 추출
+          places.sort((a, b) {
+            double scoreA = a['rating'] * a['user_ratings_total'];
+            double scoreB = b['rating'] * b['user_ratings_total'];
+            return scoreB.compareTo(scoreA);
+          });
+
+          return places.take(10).toList();
+        }
+      }
+      return [];
+    }
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: fetchNearbyHotPlaces(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox(height: 230, child: Center(child: CircularProgressIndicator(color: AppColors.primary)));
         }
 
-        places.sort((a, b) => (a['distance'] as double).compareTo(b['distance'] as double));
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: EmptyStateWidget(
+              icon: Icons.explore_off_rounded,
+              title: "내 주변에 핫플레이스를 찾지 못했어요",
+              subtitle: "검색 반경을 늘려보세요!",
+            ),
+          );
+        }
 
-        if (places.isEmpty) return const SizedBox();
+        final places = snapshot.data!;
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 16.0),
-              child: Text("🔥 내 주변 핫플레이스 (${_searchRadius.toInt()}m)", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              padding: const EdgeInsets.symmetric(vertical: 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.symmetric(vertical: 12),
+                    height: 1,
+                    color: AppColors.divider,
+                  ),
+                  const Text("결정이 어렵다면?", style: TextStyle(color: AppColors.textTertiary, fontSize: 13, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Text("🔥 내 주변 핫플레이스", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppTheme.radiusFull)),
+                        child: Text("${_searchRadius.toInt()}m", style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w700)),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
             SizedBox(
-              height: 230, 
+              height: 270, 
               child: ListView.separated(
+                clipBehavior: Clip.none,
                 scrollDirection: Axis.horizontal,
                 itemCount: places.length,
-                separatorBuilder: (ctx, i) => const SizedBox(width: 12),
+                separatorBuilder: (ctx, i) => const SizedBox(width: 14),
                 itemBuilder: (context, index) {
                   final data = places[index];
                   
-                  String distStr = "";
-                  double dist = data['distance'];
-                  if (dist >= 1000) {
-                    distStr = "${(dist / 1000).toStringAsFixed(1)}km";
-                  } else {
-                    distStr = "${dist.toInt()}m";
-                  }
+                  double distance = Geolocator.distanceBetween(
+                    pos.latitude, pos.longitude,
+                    data['lat'], data['lng']
+                  );
+
+                  String distStr = distance >= 1000 
+                    ? "${(distance / 1000).toStringAsFixed(1)}km" 
+                    : "${distance.toInt()}m";
 
                   return GestureDetector(
                     onTap: () {
+                      HapticFeedback.lightImpact();
                       _showHotPlacePreview(data);
                     },
                     child: Container(
-                      width: 160,
+                      width: 175,
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))],
+                        color: AppColors.cardBackground,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+                        border: Border.all(color: AppColors.borderLight),
+                        boxShadow: AppTheme.shadowMd,
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // [핵심] FutureBuilder로 구글 이미지 로딩
                           ClipRRect(
-                            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                             child: FutureBuilder<String?>(
                               future: _fetchGooglePlacePhoto(data['name'], data['lat'], data['lng']),
-                              builder: (context, snapshot) {
-                                if (snapshot.connectionState == ConnectionState.waiting) {
-                                  return Container(height: 120, color: Colors.grey[100], child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey)));
+                              builder: (context, photoSnapshot) {
+                                if (photoSnapshot.connectionState == ConnectionState.waiting) {
+                                  return Container(height: 140, color: AppColors.surfaceVariant, child: const Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)));
                                 }
-                                if (snapshot.hasData && snapshot.data != null) {
-                                  return Image.network(snapshot.data!, height: 120, width: double.infinity, fit: BoxFit.cover);
+                                if (photoSnapshot.hasData && photoSnapshot.data != null) {
+                                  return Stack(
+                                    children: [
+                                      Image.network(photoSnapshot.data!, height: 140, width: double.infinity, fit: BoxFit.cover),
+                                      Positioned(
+                                        top: 8,
+                                        right: 8,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withOpacity(0.6),
+                                            borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                                          ),
+                                          child: Text(distStr, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                                        ),
+                                      ),
+                                    ],
+                                  );
                                 }
-                                // 실패시 Firestore 이미지 또는 기본 아이콘
-                                return Image.network(
-                                  data['imageUrl'] ?? '',
-                                  height: 120, 
-                                  width: double.infinity, 
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (ctx, err, stack) => Container(height: 120, color: Colors.grey[200], child: const Icon(Icons.store, color: Colors.grey)),
-                                );
+                                return Container(height: 140, color: AppColors.surfaceVariant, child: Icon(Icons.storefront_rounded, size: 40, color: AppColors.textTertiary));
                               },
                             ),
                           ),
                           Padding(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.all(14),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(data['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                const SizedBox(height: 4),
+                                Text(data['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, letterSpacing: -0.3), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 8),
                                 Row(
                                   children: [
-                                    const Icon(Icons.star, size: 14, color: Colors.amber),
-                                    Text(" ${data['rating'] ?? '-'}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.accentSurface,
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
+                                          const SizedBox(width: 2),
+                                          Text("${data['rating']}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.accent)),
+                                        ],
+                                      ),
+                                    ),
                                     const Spacer(),
-                                    Text(distStr, style: const TextStyle(fontSize: 12, color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                                    Text(data['category'] ?? '', style: const TextStyle(fontSize: 11, color: AppColors.textTertiary, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
                                   ],
                                 ),
-                                const SizedBox(height: 2),
-                                Text(data['category'] ?? '', style: const TextStyle(fontSize: 12, color: Colors.grey)),
                               ],
                             ),
                           )
@@ -882,70 +1070,93 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final currentCats = _isFoodMode ? _foodCategories : _playCategories;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('오늘은 오토카지', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        centerTitle: false,
-        backgroundColor: Colors.white,
-        elevation: 0,
+        title: const Text('오늘은 오토카지'),
         actions: [
-          IconButton(icon: const Icon(Icons.tune, color: Colors.black), onPressed: _showFilterSettings),
-          IconButton(
-            icon: const Icon(Icons.people_alt_outlined, color: Colors.black),
-            onPressed: () {
-              if (FirebaseAuth.instance.currentUser?.isAnonymous ?? true) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("로그인이 필요한 기능입니다.")));
-                return;
-              }
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const FriendScreen()));
-            },
-          ),
+          _buildAppBarAction(Icons.tune_rounded, _showFilterSettings),
+          _buildAppBarAction(Icons.people_alt_rounded, () {
+            if (FirebaseAuth.instance.currentUser?.isAnonymous ?? true) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("로그인이 필요한 기능입니다.")));
+              return;
+            }
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const FriendScreen()));
+          }),
           const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildModeToggle(),
-            const SizedBox(height: 24),
-            _buildHotPlaces(), 
-            const SizedBox(height: 24),
-            Text(_isFoodMode ? "어떤 종류가 땡기세요?" : "어디로 갈까요?", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            _buildChipGrid(currentCats.keys.toList(), _selectedMainCats),
-            if (_selectedMainCats.isNotEmpty) ...[
-              const SizedBox(height: 32),
-              Text(_isFoodMode ? "세부 메뉴는요?" : "활동 종류", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              Builder(builder: (context) {
-                final List<String> subItems = [];
-                for (var key in _selectedMainCats) {
-                  if (currentCats.containsKey(key)) subItems.addAll(currentCats[key]!);
-                }
-                return _buildChipGrid(subItems, _selectedSubCats);
-              }),
-            ],
-            const SizedBox(height: 100),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildModeToggle(),
+                  const SizedBox(height: 40),
+                  Text(
+                    _isFoodMode ? "어떤 종류가 땡기세요?" : "어디로 갈까요?", 
+                    style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: AppColors.textPrimary),
+                  ),
+                  const SizedBox(height: 20),
+                  _buildChipGrid(currentCats.keys.toList(), _selectedMainCats),
+
+                  if (_selectedMainCats.isNotEmpty) ...[
+                    const SizedBox(height: 40),
+                    Text(
+                      _isFoodMode ? "세부 메뉴는요?" : "활동 종류", 
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 16),
+                    Builder(builder: (context) {
+                      final List<String> subItems = [];
+                      for (var key in _selectedMainCats) {
+                        if (currentCats.containsKey(key)) subItems.addAll(currentCats[key]!);
+                      }
+                      return _buildChipGrid(subItems, _selectedSubCats);
+                    }),
+                  ],
+                ],
+              ),
+            ),
+
+            // 핫플레이스는 화면 끝까지 스크롤되도록 Padding을 분리
+            Padding(
+              padding: const EdgeInsets.only(left: 24.0, right: 24.0, top: 16.0, bottom: 140.0),
+              child: _buildHotPlaces(),
+            ),
           ],
         ),
       ),
       bottomSheet: Container(
-        color: Colors.white,
-        padding: const EdgeInsets.all(24),
-        child: ElevatedButton(
+        color: AppColors.background,
+        padding: const EdgeInsets.only(left: 24, right: 24, bottom: 24, top: 16),
+        child: AppGradientButton(
+          text: '오토카지 추천받기',
+          icon: Icons.auto_awesome_rounded,
+          isLoading: _isLoading,
           onPressed: _isLoading ? null : _searchAndRecommend,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.black,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 56),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            elevation: 0,
+          height: 60,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAppBarAction(IconData icon, VoidCallback onPressed) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 4),
+      child: GestureDetector(
+        onTap: onPressed,
+        child: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceVariant,
+            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
           ),
-          child: _isLoading 
-              ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-              : const Text('오토카지 추천받기', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          child: Icon(icon, color: AppColors.textPrimary, size: 22),
         ),
       ),
     );
