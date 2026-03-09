@@ -18,6 +18,8 @@ import 'package:autokaji/theme/app_colors.dart';
 import 'package:autokaji/theme/app_theme.dart';
 import 'package:autokaji/widgets/common_widgets.dart';
 
+enum MapDisplayMode { mine, friends, all }
+
 class MapScreen extends ConsumerStatefulWidget {
   final TargetPlace? initialTarget;
 
@@ -37,10 +39,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   List<dynamic> _placePredictions = [];
   Timer? _debounce;
   
-  List<QueryDocumentSnapshot> _allVisits = []; 
+  List<QueryDocumentSnapshot> _myVisits = []; 
+  List<QueryDocumentSnapshot> _friendVisits = []; 
   Set<Marker> _savedMarkers = {}; 
   Marker? _searchMarker;          
 
+  MapDisplayMode _displayMode = MapDisplayMode.all;
   bool _isFoodMode = true; 
   bool _showCategoryChips = true; 
   bool _areMarkersVisible = true; 
@@ -49,8 +53,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final List<String> _playCategories = ['전체', '실내', '실외', '테마파크', '영화/공연', '쇼핑', '기타'];
   
   String _selectedCategory = '전체';
-
   bool _isMapCreated = false;
+  double _currentZoom = 16.0; // 현재 줌 레벨 추적
 
   static const CameraPosition _defaultCityHall = CameraPosition(
     target: LatLng(37.5665, 126.9780),
@@ -60,6 +64,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadInitialData();
+    });
+  }
+
+  void _loadInitialData() {
+    final myVisitsAsync = ref.read(userVisitsProvider);
+    final friendVisitsAsync = ref.read(friendsVisitsProvider);
+
+    if (myVisitsAsync.hasValue) {
+      setState(() => _myVisits = myVisitsAsync.value!);
+    }
+    if (friendVisitsAsync.hasValue) {
+      setState(() => _friendVisits = friendVisitsAsync.value!);
+    }
+    _applyFilter();
   }
 
   @override
@@ -74,14 +94,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   @override
   void dispose() {
-    _googleMapController.dispose();
+    if (_isMapCreated) _googleMapController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
     _debounce?.cancel();
     super.dispose();
   }
 
-  Future<BitmapDescriptor> _createEmojiMarkerBitmap(String category) async {
+  /// 줌 레벨에 따라 동적으로 마커 크기 계산 (더 작게 조정)
+  int _getDynamicMarkerSize() {
+    if (_currentZoom >= 16) return 55;
+    if (_currentZoom >= 14) return 45;
+    if (_currentZoom >= 12) return 35;
+    return 28; 
+  }
+
+  Future<BitmapDescriptor> _createEmojiMarkerBitmap(String category, {bool isFriend = false}) async {
     String emoji;
     switch (category) {
       case '한식': emoji = '🍚'; break;
@@ -97,30 +125,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       default:   emoji = '🍴'; break;
     }
 
-    const Color bgColor = ui.Color.fromARGB(255, 255, 255, 255);
-    final int size = 95; 
+    final int size = _getDynamicMarkerSize();
     final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
     final ui.Canvas canvas = ui.Canvas(pictureRecorder);
-    final ui.Paint paint = ui.Paint()..color = bgColor;
+    final ui.Paint paint = ui.Paint()..color = Colors.white;
     final double radius = size / 2.0;
 
-    canvas.drawCircle(Offset(radius, radius), radius, paint);
+    // 배경 그림자 (작을 땐 매우 연하게)
+    if (size > 30) {
+      canvas.drawCircle(Offset(radius, radius), radius, ui.Paint()..color = Colors.black.withOpacity(0.08)..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 1.5));
+    }
+    
+    canvas.drawCircle(Offset(radius, radius), radius - 1.5, paint);
 
+    // 테두리 색상 및 두께 조정
     final ui.Paint borderPaint = ui.Paint()
-      ..color = const ui.Color.fromARGB(255, 255, 107, 107) // Coral border
+      ..color = isFriend ? const Color(0xFF9C27B0) : const Color(0xFFFF5252)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 4.0;
-    canvas.drawCircle(Offset(radius, radius), radius - 2, borderPaint);
+      ..strokeWidth = size > 40 ? 2.5 : 1.5;
+    canvas.drawCircle(Offset(radius, radius), radius - 2.5, borderPaint);
 
     TextPainter painter = TextPainter(textDirection: ui.TextDirection.ltr);
-    painter.text = TextSpan(text: emoji, style: TextStyle(fontSize: size * 0.7));
+    painter.text = TextSpan(text: emoji, style: TextStyle(fontSize: size * 0.52));
     painter.layout();
     painter.paint(canvas, Offset(radius - painter.width / 2, radius - painter.height / 2));
 
     final img = await pictureRecorder.endRecording().toImage(size, size);
     final data = await img.toByteData(format: ui.ImageByteFormat.png);
 
-    return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
+    return BitmapDescriptor.bytes(data!.buffer.asUint8List());
   }
 
   Future<void> _applyFilter() async {
@@ -130,10 +163,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
 
     final Set<Marker> newMarkers = {};
+    final String? myUid = FirebaseAuth.instance.currentUser?.uid;
+    
+    List<QueryDocumentSnapshot> displayData = [];
+    if (_displayMode == MapDisplayMode.mine || _displayMode == MapDisplayMode.all) {
+      displayData.addAll(_myVisits);
+    }
+    if (_displayMode == MapDisplayMode.friends || _displayMode == MapDisplayMode.all) {
+      displayData.addAll(_friendVisits);
+    }
 
-    for (var doc in _allVisits) {
+    for (var doc in displayData) {
       final data = doc.data() as Map<String, dynamic>;
       final String itemCategory = data['foodType'] ?? '기타';
+      final String itemUid = data['uid'] ?? '';
+      final bool isFriendMarker = itemUid != myUid;
       
       if (_isFoodMode) {
         if (_playCategories.contains(itemCategory) && itemCategory != '기타') continue;
@@ -143,21 +187,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
       if (_selectedCategory == '전체' || _selectedCategory == itemCategory) {
         if (data['lat'] != null && data['lng'] != null) {
-          final BitmapDescriptor icon = await _createEmojiMarkerBitmap(itemCategory);
+          final BitmapDescriptor icon = await _createEmojiMarkerBitmap(itemCategory, isFriend: isFriendMarker);
 
           newMarkers.add(
             Marker(
-              markerId: MarkerId(doc.id),
+              markerId: MarkerId("${doc.id}_${isFriendMarker ? 'f' : 'm'}"),
               position: LatLng(data['lat'], data['lng']),
               icon: icon,
               onTap: () {
                 _moveCamera(data['lat'], data['lng']);
-                _showSaveDialog({
-                  'name': data['storeName'],
-                  'formatted_address': data['address'] ?? '',
-                  'rating': null,
-                  'photos': []
-                }, data['lat'], data['lng']);
+                _showPlaceDetail(data, isFriend: isFriendMarker);
               },
             ),
           );
@@ -170,6 +209,117 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         _savedMarkers = newMarkers;
       });
     }
+  }
+
+  void _showPlaceDetail(Map<String, dynamic> data, {bool isFriend = false}) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+          boxShadow: AppTheme.shadowLg,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isFriend ? Colors.purple.withOpacity(0.1) : AppColors.primarySurface,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    isFriend ? "${data['userNickname'] ?? '친구'}의 추천" : "나의 기록",
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isFriend ? Colors.purple : AppColors.primary),
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  data['visitDate'] != null 
+                    ? DateFormat('yyyy.MM.dd').format((data['visitDate'] as Timestamp).toDate())
+                    : '',
+                  style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(data['storeName'] ?? '장소명 없음', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            Text(data['address'] ?? '', style: const TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+            const SizedBox(height: 16),
+            if (data['memo'] != null && data['memo'].toString().isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(8)),
+                child: Text("💬 ${data['memo']}", style: const TextStyle(fontSize: 13)),
+              ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: AppGradientButton(
+                    text: "길찾기",
+                    height: 50,
+                    onPressed: () => _launchNaverWalk(data['lat'], data['lng'], data['storeName']),
+                  ),
+                ),
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDisplayModeToggle() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      height: 40,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _buildModeChip("🏠 모두 보기", MapDisplayMode.all),
+          const SizedBox(width: 8),
+          _buildModeChip("👤 나의 기록", MapDisplayMode.mine),
+          const SizedBox(width: 8),
+          _buildModeChip("👫 친구 기록", MapDisplayMode.friends),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeChip(String label, MapDisplayMode mode) {
+    final isSelected = _displayMode == mode;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _displayMode = mode);
+        _applyFilter();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : AppColors.surface.withOpacity(0.9),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: isSelected ? [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 8)] : AppTheme.shadowSm,
+          border: Border.all(color: isSelected ? AppColors.primary : AppColors.borderLight),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(color: isSelected ? Colors.white : AppColors.textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal, fontSize: 13),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildModeSelectButtons() {
@@ -344,8 +494,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _debounce = Timer(const Duration(milliseconds: 500), () { _fetchSuggestions(query); });
   }
 
-
-
   Future<void> _getPlaceDetails(String placeId, String description) async {
     setState(() {
       _searchController.text = description;
@@ -411,7 +559,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       setState(() => _placePredictions = []);
     }
   }
-
 
   void _showSaveDialog(Map<String, dynamic> placeData, double lat, double lng) {
     final String name = placeData['name'];
@@ -612,13 +759,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                             ),
                             
                             const SizedBox(height: 24),
-                            if (user != null && !(user.isAnonymous && user.displayName == null)) ...[
+                            if (user != null && !user.isAnonymous) ...[
                               const Text("함께한 친구", style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w700, fontSize: 14)),
                               const SizedBox(height: 10),
                               StreamBuilder<QuerySnapshot>(
                                 stream: FirebaseFirestore.instance.collection('users').doc(user.uid).collection('friends').snapshots(),
                                 builder: (context, snapshot) {
-                                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return Text("등록된 친구가 없습니다.", style: TextStyle(color: AppColors.textTertiary, fontSize: 13));
+                                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) return const Text("등록된 친구가 없습니다.", style: TextStyle(color: AppColors.textTertiary, fontSize: 13));
                                   return Wrap(spacing: 8.0, runSpacing: 8.0, children: snapshot.data!.docs.map((doc) {
                                     final friendUid = doc.id;
                                     return StreamBuilder<DocumentSnapshot>(
@@ -674,7 +821,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   Future<void> _saveVisitToFirestore(String name, String address, String foodType, DateTime date, double lat, double lng, Map<String, String> taggedFriends) async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null || (user.isAnonymous && user.displayName == null)) {
+    if (user == null || user.isAnonymous) {
       if (!mounted) return;
       showDialog(
         context: context, 
@@ -714,7 +861,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Widget build(BuildContext context) {
     ref.listen<AsyncValue<List<QueryDocumentSnapshot>>>(userVisitsProvider, (previous, next) {
       if (next.hasValue) {
-        _allVisits = next.value!;
+        setState(() => _myVisits = next.value!);
+        _applyFilter();
+      }
+    });
+    
+    ref.listen<AsyncValue<List<QueryDocumentSnapshot>>>(friendsVisitsProvider, (previous, next) {
+      if (next.hasValue) {
+        setState(() => _friendVisits = next.value!);
         _applyFilter();
       }
     });
@@ -739,18 +893,24 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             onMapCreated: (controller) { 
               _googleMapController = controller; 
               _isMapCreated = true;
+              _loadInitialData();
               if (widget.initialTarget != null) {
                  _updateTargetFromHome();
               }
             },
             initialCameraPosition: initialCameraPosition,
             myLocationEnabled: true, myLocationButtonEnabled: true, zoomControlsEnabled: true, mapToolbarEnabled: false, compassEnabled: true,
-            padding: const EdgeInsets.only(top: 100, bottom: 20),
+            padding: const EdgeInsets.only(top: 140, bottom: 20),
             markers: _savedMarkers.union(_searchMarker != null ? {_searchMarker!} : {}),
             onTap: (_) => _onMapInteraction(),
-            onCameraMoveStarted: () {
-              _dismissKeyboard();
+            onCameraMove: (position) {
+              // 줌 레벨이 정수 단위로 크게 변할 때만 마커 갱신 (성능 고려)
+              if ((position.zoom - _currentZoom).abs() > 0.5) {
+                _currentZoom = position.zoom;
+                _applyFilter();
+              }
             },
+            onCameraMoveStarted: () => _dismissKeyboard(),
           ),
           
           Positioned(
@@ -804,6 +964,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ),
                   ),
 
+                  _buildDisplayModeToggle(),
+
                   const SizedBox(height: 4),
                   _showCategoryChips ? _buildCategoryChips() : _buildModeSelectButtons(),
 
@@ -822,27 +984,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         itemBuilder: (context, index) {
                           final prediction = _placePredictions[index];
                           return ListTile(
-                            title: Text(
-                              prediction['structured_formatting']?['main_text'] ?? prediction['description'], 
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-                            ),
-                            subtitle: Text(
-                              prediction['structured_formatting']?['secondary_text'] ?? "", 
-                              overflow: TextOverflow.ellipsis, 
-                              style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
-                            ),
+                            title: Text(prediction['structured_formatting']?['main_text'] ?? prediction['description'], overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+                            subtitle: Text(prediction['structured_formatting']?['secondary_text'] ?? "", overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
                             leading: Container(
                               width: 36, height: 36,
-                              decoration: BoxDecoration(
-                                color: AppColors.primarySurface,
-                                borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-                              ),
+                              decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppTheme.radiusSm)),
                               child: const Icon(Icons.location_on_rounded, color: AppColors.primary, size: 20),
                             ),
-                            onTap: () {
-                              _getPlaceDetails(prediction['place_id'], prediction['description']);
-                            },
+                            onTap: () => _getPlaceDetails(prediction['place_id'], prediction['description']),
                           );
                         },
                       ),
@@ -851,7 +1000,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
           ),
-
         ],
       ),
     );
@@ -859,69 +1007,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   Future<void> _launchNaverWalk(double lat, double lng, String name) async {
     final locationAsync = ref.read(locationProvider);
-    if (!locationAsync.hasValue || locationAsync.value == null) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('현재 위치를 가져올 수 없습니다.')));
-      return;
-    }
-
-    final Uri url = Uri(
-      scheme: 'nmap',
-      host: 'route',
-      path: '/walk',
-      queryParameters: {
-        'slat': '${locationAsync.value!.latitude}',
-        'slng': '${locationAsync.value!.longitude}',
-        'sname': '현재 위치',
-        'dlat': '$lat',
-        'dlng': '$lng',
-        'dname': name,
-        'appname': 'com.gyuhan.autokaji',
-      },
-    );
-
+    if (!locationAsync.hasValue || locationAsync.value == null) return;
+    final Uri url = Uri(scheme: 'nmap', host: 'route', path: '/walk', queryParameters: {
+      'slat': '${locationAsync.value!.latitude}', 'slng': '${locationAsync.value!.longitude}', 'sname': '현재 위치',
+      'dlat': '$lat', 'dlng': '$lng', 'dname': name, 'appname': 'com.gyuhan.autokaji',
+    });
     try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url);
-      } else {
-        if (Platform.isIOS) await launchUrl(Uri.parse('https://apps.apple.com/kr/app/naver-map-navigation/id311867728'));
-        else await launchUrl(Uri.parse('market://details?id=com.nhn.android.nmap'));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('네이버 지도 실행 오류: $e')));
-    }
+      if (await canLaunchUrl(url)) await launchUrl(url);
+      else await launchUrl(Uri.parse(Platform.isIOS ? 'https://apps.apple.com/kr/app/naver-map-navigation/id311867728' : 'market://details?id=com.nhn.android.nmap'));
+    } catch (_) {}
   }
 
   Future<void> _launchNaverTransit(double lat, double lng, String name) async {
     final locationAsync = ref.read(locationProvider);
-    if (!locationAsync.hasValue || locationAsync.value == null) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('현재 위치를 가져올 수 없습니다.')));
-      return;
-    }
-
-    final Uri url = Uri(
-      scheme: 'nmap',
-      host: 'route',
-      path: '/public',
-      queryParameters: {
-        'slat': '${locationAsync.value!.latitude}',
-        'slng': '${locationAsync.value!.longitude}',
-        'sname': '현재 위치',
-        'dlat': '$lat',
-        'dlng': '$lng',
-        'dname': name,
-        'appname': 'com.gyuhan.autokaji',
-      },
-    );
-
+    if (!locationAsync.hasValue || locationAsync.value == null) return;
+    final Uri url = Uri(scheme: 'nmap', host: 'route', path: '/public', queryParameters: {
+      'slat': '${locationAsync.value!.latitude}', 'slng': '${locationAsync.value!.longitude}', 'sname': '현재 위치',
+      'dlat': '$lat', 'dlng': '$lng', 'dname': name, 'appname': 'com.gyuhan.autokaji',
+    });
     try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url);
-      } else {
-        if (Platform.isIOS) await launchUrl(Uri.parse('https://apps.apple.com/kr/app/naver-map-navigation/id311867728'));
-        else await launchUrl(Uri.parse('market://details?id=com.nhn.android.nmap'));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('네이버 지도 실행 오류: $e')));
-    }
+      if (await canLaunchUrl(url)) await launchUrl(url);
+      else await launchUrl(Uri.parse(Platform.isIOS ? 'https://apps.apple.com/kr/app/naver-map-navigation/id311867728' : 'market://details?id=com.nhn.android.nmap'));
+    } catch (_) {}
   }
 }

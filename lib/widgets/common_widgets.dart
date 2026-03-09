@@ -2,10 +2,66 @@ import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shimmer/shimmer.dart';
 import 'package:autokaji/theme/app_colors.dart';
 import 'package:autokaji/theme/app_theme.dart';
 import 'package:autokaji/services/place_search_service.dart';
 import 'package:autokaji/providers/wishlist_provider.dart';
+
+/// 핫플레이스 카드용 스켈레톤 로딩 위젯
+class HotPlaceShimmer extends StatelessWidget {
+  const HotPlaceShimmer({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Shimmer.fromColors(
+      baseColor: Colors.grey[200]!,
+      highlightColor: Colors.grey[50]!,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 이미지 영역
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              ),
+            ),
+            const SizedBox(width: 16),
+            // 정보 영역
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 8),
+                  Container(width: 120, height: 18, color: Colors.white),
+                  const SizedBox(height: 8),
+                  Container(width: double.infinity, height: 14, color: Colors.white),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Container(width: 40, height: 14, color: Colors.white),
+                      const SizedBox(width: 12),
+                      Container(width: 60, height: 14, color: Colors.white),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// 앱 전체에서 사용하는 공통 그라데이션 버튼
 class AppGradientButton extends StatelessWidget {

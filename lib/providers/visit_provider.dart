@@ -8,8 +8,7 @@ final visitRepositoryProvider = Provider<VisitRepository>((ref) {
   return VisitRepository();
 });
 
-// [핵심] 현재 로그인한 유저의 방문 기록을 실시간으로 가져오는 Provider
-// authStateProvider에 의존하여, 유저가 바뀌거나 로그아웃하면 자동으로 스트림이 갱신/해제됩니다.
+// 현재 로그인한 유저의 방문 기록을 실시간으로 가져오는 Provider
 final userVisitsProvider = StreamProvider<List<QueryDocumentSnapshot>>((ref) {
   final authState = ref.watch(authStateProvider);
   final visitRepo = ref.watch(visitRepositoryProvider);
@@ -17,11 +16,44 @@ final userVisitsProvider = StreamProvider<List<QueryDocumentSnapshot>>((ref) {
   return authState.when(
     data: (user) {
       if (user == null || user.isAnonymous) {
-        // 비로그인 상태이거나 익명 유저면 빈 리스트 스트림 반환
         return Stream.value([]);
       }
-      // 로그인된 유저라면 해당 UID로 스트림 구독
       return visitRepo.getUserVisitsStream(user.uid);
+    },
+    loading: () => Stream.value([]),
+    error: (_, __) => Stream.value([]),
+  );
+});
+
+// 친구들의 방문 기록을 실시간으로 가져오는 Provider
+final friendsVisitsProvider = StreamProvider<List<QueryDocumentSnapshot>>((ref) {
+  final authState = ref.watch(authStateProvider);
+  final visitRepo = ref.watch(visitRepositoryProvider);
+
+  return authState.when(
+    data: (user) {
+      if (user == null || user.isAnonymous) return Stream.value([]);
+      
+      // 1. 친구 목록 가져오기
+      return FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('friends')
+          .snapshots()
+          .asyncMap((friendsSnapshot) async {
+            final friendUids = friendsSnapshot.docs.map((doc) => doc.id).toList();
+            if (friendUids.isEmpty) return <QueryDocumentSnapshot>[];
+
+            // 2. 친구들의 방문 기록 쿼리 (Firestore where-in 제한 10개 고려)
+            // 실제 상용 서비스에선 복수 쿼리가 필요할 수 있으나, 일단 단순 구현
+            final visitsSnapshot = await FirebaseFirestore.instance
+                .collection('visits')
+                .where('uid', whereIn: friendUids.take(10).toList())
+                .orderBy('visitDate', descending: true)
+                .get();
+            
+            return visitsSnapshot.docs;
+          });
     },
     loading: () => Stream.value([]),
     error: (_, __) => Stream.value([]),
