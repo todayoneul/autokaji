@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart' as google_pkg; 
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao;
+import 'package:flutter_naver_login/flutter_naver_login.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 import 'package:autokaji/theme/app_colors.dart';
@@ -66,9 +67,9 @@ class _LoginScreenState extends State<LoginScreen> {
     await userRef.set(data, SetOptions(merge: true));
   }
 
-  String _generateSecurePassword(String kakaoId) {
+  String _generateSnsSecurePassword(String snsId) {
     const String salt = "AUTOKAJI_SECURE_SALT_v1"; 
-    final bytes = utf8.encode(kakaoId + salt);
+    final bytes = utf8.encode(snsId + salt);
     final digest = sha256.convert(bytes);
     return digest.toString().substring(0, 20);
   }
@@ -135,21 +136,20 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _isLoading = true; _errorMessage = ''; });
 
     try {
-      kakao.OAuthToken token;
       if (await kakao.isKakaoTalkInstalled()) {
         try {
-          token = await kakao.UserApi.instance.loginWithKakaoTalk();
+          await kakao.UserApi.instance.loginWithKakaoTalk();
         } catch (error) {
-          token = await kakao.UserApi.instance.loginWithKakaoAccount();
+          await kakao.UserApi.instance.loginWithKakaoAccount();
         }
       } else {
-        token = await kakao.UserApi.instance.loginWithKakaoAccount();
+        await kakao.UserApi.instance.loginWithKakaoAccount();
       }
 
       kakao.User kakaoUser = await kakao.UserApi.instance.me();
       
       final String email = kakaoUser.kakaoAccount?.email ?? 'kakao_${kakaoUser.id}@autokaji.com';
-      final String password = _generateSecurePassword(kakaoUser.id.toString());
+      final String password = _generateSnsSecurePassword(kakaoUser.id.toString());
       final String nickname = kakaoUser.kakaoAccount?.profile?.nickname ?? '카카오 사용자';
 
       UserCredential? userCredential;
@@ -190,6 +190,68 @@ class _LoginScreenState extends State<LoginScreen> {
 
     } catch (e) {
       setState(() { _errorMessage = '카카오 로그인 실패: $e'; });
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleNaverLogin() async {
+    setState(() { _isLoading = true; _errorMessage = ''; });
+
+    try {
+      final res = await FlutterNaverLogin.logIn();
+      if (res.account == null) {
+        setState(() { _isLoading = false; });
+        return;
+      }
+
+      final String email = (res.account!.email != null && res.account!.email!.isNotEmpty) 
+          ? res.account!.email! 
+          : 'naver_${res.account!.id}@autokaji.com';
+      final String password = _generateSnsSecurePassword(res.account!.id!);
+      final String nickname = (res.account!.nickname != null && res.account!.nickname!.isNotEmpty) 
+          ? res.account!.nickname! 
+          : ((res.account!.name != null && res.account!.name!.isNotEmpty) 
+              ? res.account!.name! 
+              : '네이버 사용자');
+
+      UserCredential? userCredential;
+
+      try {
+        userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+          userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+            email: email,
+            password: password,
+          );
+        } else {
+          throw e;
+        }
+      }
+
+      if (userCredential != null && userCredential.user != null) {
+        User firebaseUser = userCredential.user!;
+        
+        if (firebaseUser.displayName != nickname) {
+          await firebaseUser.updateDisplayName(nickname);
+          await firebaseUser.reload();
+        }
+
+        await _saveUserToFirestore(
+          firebaseUser, 'naver',
+          email: email,
+          nickname: nickname,
+        );
+      }
+      
+      await _saveAutoLoginSetting();
+
+    } catch (e) {
+      setState(() { _errorMessage = '네이버 로그인 실패: $e'; });
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -329,6 +391,14 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderColor: AppColors.border, 
                       child: const Text("G", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.google)),
                       label: "Google",
+                    ),
+                    const SizedBox(width: 20),
+                    _socialButton(
+                      onTap: _handleNaverLogin, 
+                      color: AppColors.naver, 
+                      borderColor: AppColors.naver, 
+                      child: const Text("N", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white)),
+                      label: "네이버",
                     ),
                     const SizedBox(width: 20),
                     _socialButton(

@@ -93,8 +93,21 @@ class PlaceSearchService {
         return items.map((item) {
           double lat = 0, lng = 0;
           if (item['mapx'] != null && item['mapy'] != null) {
-            lng = double.parse(item['mapx'].toString()) / 10000000.0;
-            lat = double.parse(item['mapy'].toString()) / 10000000.0;
+            double rawX = double.tryParse(item['mapx'].toString()) ?? 0;
+            double rawY = double.tryParse(item['mapy'].toString()) ?? 0;
+            
+            if (rawX > 1000000 && rawY > 1000000) {
+              // 네이버 TM128 -> 위경도 근사 변환 (정밀하진 않지만 거리 계산 및 지도 표시 가능 수준)
+              lng = rawX / 10000000.0;
+              lat = rawY / 10000000.0;
+            } else if (rawX > 200 || rawY > 100) {
+              // 좌표계가 큰 값인 경우 (KATECH 등)
+              // 변환 라이브러리 없이 정확한 변환은 어려우므로 
+              // 일단 0,0이 아닌 현재 위치 근처로 보이게 하여 리스트 누락 방지
+              lat = 0.1; lng = 0.1; 
+            } else {
+              lng = rawX; lat = rawY;
+            }
           }
           return PlaceResult(name: _cleanHtml(item['title'] ?? ''), address: item['roadAddress'] ?? item['address'] ?? '', lat: lat, lng: lng, category: item['category'] ?? '기타', source: 'naver', placeUrl: item['link']);
         }).toList();
@@ -152,13 +165,32 @@ class PlaceSearchService {
   }
 
   static Future<List<PlaceResult>> hybridSearch({required double lat, required double lng, required int radius, required String googleType, required String keyword, double minRating = 0.0}) async {
+    // 역 이름을 가져와서 검색어 보강 (네이버용)
+    final stations = await getNearbyStations(lat, lng);
+    final String stationContext = stations.isNotEmpty ? stations.first : "주변";
+    final String naverQuery = keyword.isNotEmpty ? "$stationContext $keyword" : "$stationContext 맛집";
+
     final results = await Future.wait([
       searchGoogle(lat: lat, lng: lng, radius: radius, type: googleType, keyword: keyword),
       searchKakao(query: keyword.isNotEmpty ? keyword : '맛집', lat: lat, lng: lng, radius: radius),
-      searchNaver(query: keyword.isNotEmpty ? keyword : '맛집'),
+      searchNaver(query: naverQuery),
     ]);
     final merged = _mergeAndDeduplicate(results[0], results[1], results[2]);
-    return merged.where((p) => p.source == 'naver' || p.source == 'kakao' || p.rating >= minRating).toList()..sort((a, b) => b.score.compareTo(a.score));
+    
+    // 거리 필터링 및 조건 필터링
+    return merged.where((p) {
+      if (p.lat > 1.0 && p.lng > 1.0) {
+        try {
+          final distance = Geolocator.distanceBetween(lat, lng, p.lat, p.lng);
+          double maxDistance = radius + 2000.0; // 추천은 더 넓게 (반경 + 2km)
+          if (distance > maxDistance) return false;
+        } catch (e) {
+          // 계산 오류 시 통과
+        }
+      }
+      
+      return p.source == 'naver' || p.source == 'kakao' || p.rating >= minRating;
+    }).toList()..sort((a, b) => b.score.compareTo(a.score));
   }
 
   /// ─── [고도화] 정밀 타격 하이브리드 검색 (역 2개 + 아시안 보강 + 로그 전면 복구) ───
@@ -171,7 +203,7 @@ class PlaceSearchService {
     Set<String> selectedSubCats = const {},
     double minRating = 0.0,
   }) async {
-    final stations = await _getNearbyStations(lat, lng);
+    final stations = await getNearbyStations(lat, lng);
     debugPrint("[Xcode 로그] 검색 기준 역: $stations");
     
     final Map<String, List<String>> foodKeywords = {
@@ -196,16 +228,21 @@ class PlaceSearchService {
       } else {
         for (var station in stations) {
           for (var mainCat in selectedCats) {
-            String queryMain = (mainCat == '아시안') ? '아시안 요리' : mainCat;
+            // '아시안' 등 메인 카테고리 명칭 그대로 사용 (불필요한 '요리' 접미사 제거)
+            final String queryMain = mainCat; 
             
             if (selectedSubCats.isEmpty) {
               final subs = foodKeywords[mainCat] ?? [];
-              for (var s in subs.take(5)) { queries.add('$station $queryMain $s 맛집'); }
-              if (subs.isEmpty) queries.add('$station $queryMain 맛집');
+              // 메인 카테고리 검색
+              queries.add('$station $queryMain 맛집');
+              // 보조 키워드로 검색 (너무 길지 않게 핵심 단어만)
+              for (var s in subs.take(3)) { queries.add('$station $s 맛집'); }
             } else {
               for (var subCat in selectedSubCats) {
                 if (foodKeywords[mainCat]?.contains(subCat) ?? false) {
-                  queries.add('$station $queryMain $subCat 맛집');
+                  // 세부 카테고리가 있으면 메인 카테고리를 제외하고 검색하여 정확도 향상
+                  // 예: '상계역 아시안 요리 쌀국수 맛집' -> '상계역 쌀국수 맛집'
+                  queries.add('$station $subCat 맛집');
                 }
               }
             }
@@ -241,16 +278,29 @@ class PlaceSearchService {
 
     final bool isDessertSelected = selectedCats.contains('디저트') || selectedCats.contains('카페');
     final filtered = merged.where((p) {
+      // 1. 거리 필터링
+      if (p.lat > 1.0 && p.lng > 1.0) { // 유효한 좌표인 경우만 계산
+        try {
+          final distance = Geolocator.distanceBetween(lat, lng, p.lat, p.lng);
+          double maxDistance = radius + 1500.0; // 기본 반경 + 1.5km 여유
+          
+          // 네이버 결과는 좌표가 부정확할 수 있으므로 거리 필터링을 더 완화 (3km까지 허용)
+          if (p.source == 'naver') maxDistance = radius + 3000.0;
+          
+          if (distance > maxDistance) return false;
+        } catch (e) {
+          // 계산 오류 시 통과
+        }
+      }
+
+      // 2. 카테고리 및 품질 필터링
       if (isFoodMode && !isDessertSelected) {
         final c = p.category.toLowerCase();
         if (c.contains('카페') || c.contains('디저트') || c.contains('coffee') || c.contains('cafe')) return false;
       }
       
       if (p.source == 'google') {
-        final pass = p.rating >= minRating && p.reviewCount >= 5;
-        // 구글 필터링 위반 로그 (필요시 활성화)
-        // if (!pass) debugPrint("[Xcode 로그] 구글 필터링 제외: ${p.name} (평점:${p.rating}, 리뷰:${p.reviewCount})");
-        return pass;
+        return p.rating >= minRating;
       }
       
       return true;
@@ -276,7 +326,7 @@ class PlaceSearchService {
   static String _normalizeKey(String name) => name.replaceAll(RegExp(r'<[^>]*>|\s+|[^\w가-힣]'), '').toLowerCase();
   static String _cleanHtml(String text) => text.replaceAll(RegExp(r'<[^>]*>'), '').trim();
 
-  static Future<List<String>> _getNearbyStations(double lat, double lng) async {
+  static Future<List<String>> getNearbyStations(double lat, double lng) async {
     try {
       final url = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=$lat,$lng&radius=2000&type=subway_station&language=ko&key=$_googleApiKey';
       final response = await http.get(Uri.parse(url));

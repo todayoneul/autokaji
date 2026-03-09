@@ -466,9 +466,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ).then((list) {
         var mapped = list.map((p) => {'name': p.name, 'lat': p.lat, 'lng': p.lng, 'rating': p.rating, 'category': p.category, 'source': p.source, 'place_result': p}).toList();
         mapped.sort((a, b) {
-          final distA = Geolocator.distanceBetween(pos.latitude, pos.longitude, (a['lat'] as num).toDouble(), (a['lng'] as num).toDouble());
-          final distB = Geolocator.distanceBetween(pos.latitude, pos.longitude, (b['lat'] as num).toDouble(), (b['lng'] as num).toDouble());
-          return distA.compareTo(distB);
+          try {
+            final distA = Geolocator.distanceBetween(pos.latitude, pos.longitude, (a['lat'] as num).toDouble(), (a['lng'] as num).toDouble());
+            final distB = Geolocator.distanceBetween(pos.latitude, pos.longitude, (b['lat'] as num).toDouble(), (b['lng'] as num).toDouble());
+            return distA.compareTo(distB);
+          } catch (e) {
+            return 0; // 좌표 오류 시 순서 변경 없음
+          }
         });
         return mapped;
       }),
@@ -481,8 +485,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildHotPlaceCard(Map<String, dynamic> data, Position userPos) {
-    final double distance = Geolocator.distanceBetween(userPos.latitude, userPos.longitude, (data['lat'] as num).toDouble(), (data['lng'] as num).toDouble());
-    final String distStr = distance >= 1000 ? "${(distance/1000).toStringAsFixed(1)}km" : "${distance.toInt()}m";
+    String distStr = "거리 정보 없음";
+    try {
+      final double distance = Geolocator.distanceBetween(userPos.latitude, userPos.longitude, (data['lat'] as num).toDouble(), (data['lng'] as num).toDouble());
+      distStr = distance >= 1000 ? "${(distance/1000).toStringAsFixed(1)}km" : "${distance.toInt()}m";
+    } catch (e) {
+      // 거리 계산 실패 시 기본값 유지
+    }
     final bool isNaver = data['source'] == 'naver';
 
     return AppCard(

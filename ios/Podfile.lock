@@ -1282,6 +1282,9 @@ PODS:
     - Flutter
   - flutter_native_splash (2.4.3):
     - Flutter
+  - flutter_naver_login (0.0.1):
+    - Flutter
+    - NidThirdPartyLogin (~> 5.0.0)
   - geolocator_apple (1.2.0):
     - Flutter
     - FlutterMacOS
@@ -1439,6 +1442,7 @@ PODS:
     - nanopb/encode (= 3.30910.0)
   - nanopb/decode (3.30910.0)
   - nanopb/encode (3.30910.0)
+  - NidThirdPartyLogin (5.0.1)
   - package_info_plus (0.4.5):
     - Flutter
   - path_provider_foundation (0.0.1):
@@ -1460,6 +1464,7 @@ DEPENDENCIES:
   - Flutter (from `Flutter`)
   - flutter_keyboard_visibility_temp_fork (from `.symlinks/plugins/flutter_keyboard_visibility_temp_fork/ios`)
   - flutter_native_splash (from `.symlinks/plugins/flutter_native_splash/ios`)
+  - flutter_naver_login (from `.symlinks/plugins/flutter_naver_login/ios`)
   - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
   - google_maps_flutter_ios (from `.symlinks/plugins/google_maps_flutter_ios/ios`)
   - google_sign_in_ios (from `.symlinks/plugins/google_sign_in_ios/darwin`)
@@ -1497,6 +1502,7 @@ SPEC REPOS:
     - GTMSessionFetcher
     - leveldb-library
     - nanopb
+    - NidThirdPartyLogin
     - PromisesObjC
     - RecaptchaInterop
 
@@ -1515,6 +1521,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_keyboard_visibility_temp_fork/ios"
   flutter_native_splash:
     :path: ".symlinks/plugins/flutter_native_splash/ios"
+  flutter_naver_login:
+    :path: ".symlinks/plugins/flutter_naver_login/ios"
   geolocator_apple:
     :path: ".symlinks/plugins/geolocator_apple/darwin"
   google_maps_flutter_ios:
@@ -1557,6 +1565,7 @@ SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   flutter_keyboard_visibility_temp_fork: 8a8809c4129e31d25fca77446e0f3fd548122ced
   flutter_native_splash: df59bb2e1421aa0282cb2e95618af4dcb0c56c29
+  flutter_naver_login: 6e80dabbf52e2715e734c2606734654fd385a111
   geolocator_apple: 66b711889fd333205763b83c9dcf0a57a28c7afd
   Google-Maps-iOS-Utils: 0a484b05ed21d88c9f9ebbacb007956edd508a96
   google_maps_flutter_ios: 11687ec5d93f8e025e12daab0a5636fa9f71d53e
@@ -1572,6 +1581,7 @@ SPEC CHECKSUMS:
   kakao_flutter_sdk_common: a21740b9dd4900f96161f365a2b6ece7a97cbf4f
   leveldb-library: cc8b8f8e013647a295ad3f8cd2ddf49a6f19be19
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
+  NidThirdPartyLogin: ed291a543cc60a433bcad522b6bf7d3126ad4fdc
   package_info_plus: c0502532a26c7662a62a356cebe2692ec5fe4ec4
   path_provider_foundation: 0b743cbb62d8e47eab856f09262bb8c1ddcfe6ba
   PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47

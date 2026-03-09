@@ -15,9 +15,18 @@
 				<array>
 					<string>com.googleusercontent.apps.115246507033-vnfguvnjs229oehbe25u6iobngp0554g</string>
 					<string>kakao538cec1aa89d1be786d8f8b90a362520</string>
+					<string>naverlogin</string>
 				</array>
 			</dict>
 		</array>
+		<key>NidUrlScheme</key>
+		<string>naverlogin</string>
+		<key>NidClientID</key>
+		<string>TnqaveO8atVTLnzvWRJp</string>
+		<key>NidClientSecret</key>
+		<string>E7SueaZkyT</string>
+		<key>NidAppName</key>
+		<string>autokaji</string>
 		<key>CFBundleGetInfoString</key>
 		<string></string>
 		<key>LSApplicationCategoryType</key>
@@ -78,6 +87,8 @@
 			<string>nmap</string>
 			<string>kakaokompassauth</string>
 			<string>kakaolink</string>
+			<string>naversearchapp</string>
+			<string>naversearchthirdlogin</string>
 		</array>
 		<key>UIStatusBarHidden</key>
 		<false/>
