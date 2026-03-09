@@ -13,17 +13,20 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:autokaji/screens/main_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:autokaji/providers/location_provider.dart';
+import 'package:autokaji/providers/visit_provider.dart';
 
-class MapScreen extends StatefulWidget {
+class MapScreen extends ConsumerStatefulWidget {
   final TargetPlace? initialTarget;
 
   const MapScreen({super.key, this.initialTarget});
 
   @override
-  State<MapScreen> createState() => _MapScreenState();
+  ConsumerState<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends ConsumerState<MapScreen> {
   String get kGoogleApiKey => dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
 
   late GoogleMapController _googleMapController;
@@ -47,8 +50,7 @@ class _MapScreenState extends State<MapScreen> {
   
   String _selectedCategory = '전체';
 
-  CameraPosition? _initialCameraPosition;
-  bool _isMapLoading = true;
+  bool _isMapCreated = false;
 
   static const CameraPosition _defaultCityHall = CameraPosition(
     target: LatLng(37.5665, 126.9780),
@@ -58,15 +60,13 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
-    _initializeMap();
-    _loadSavedMarkers();
   }
 
   @override
   void didUpdateWidget(MapScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialTarget != null && widget.initialTarget != oldWidget.initialTarget) {
-      if (!_isMapLoading) {
+      if (_isMapCreated) {
         _updateTargetFromHome();
       }
     }
@@ -276,46 +276,6 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  // --- 맵 초기화 ---
-  Future<void> _initializeMap() async {
-    try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _setDefaultLocation();
-        return;
-      }
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          _setDefaultLocation();
-          return;
-        }
-      }
-      Position position = await Geolocator.getCurrentPosition();
-      if (mounted) {
-        setState(() {
-          _initialCameraPosition = CameraPosition(
-            target: LatLng(position.latitude, position.longitude),
-            zoom: 16.0,
-          );
-          _isMapLoading = false;
-        });
-      }
-    } catch (e) {
-      _setDefaultLocation();
-    }
-  }
-
-  void _setDefaultLocation() {
-    if (mounted) {
-      setState(() {
-        _initialCameraPosition = _defaultCityHall;
-        _isMapLoading = false;
-      });
-    }
-  }
-
   void _updateTargetFromHome() {
     final target = widget.initialTarget!;
     _moveCamera(target.lat, target.lng);
@@ -333,19 +293,25 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  void _loadSavedMarkers() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null || (user.isAnonymous && user.displayName == null)) return;
-    FirebaseFirestore.instance.collection('visits').where('uid', isEqualTo: user.uid).snapshots().listen((snapshot) {
-      _allVisits = snapshot.docs;
-      if (mounted) _applyFilter();
-    });
-  }
-
   // --- 검색 로직 ---
   Future<void> _fetchSuggestions(String input) async {
     if (input.isEmpty) { setState(() => _placePredictions = []); return; }
-    final String url = 'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=$input&key=$kGoogleApiKey&language=ko&components=country:kr';
+    
+    // [수정] 내 위치 기반 편향 검색 (location & radius 추가)
+    String url = 'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=$input&key=$kGoogleApiKey&language=ko&components=country:kr';
+    
+    try {
+      final locationAsync = ref.read(locationProvider);
+      if (locationAsync.hasValue && locationAsync.value != null) {
+        final lat = locationAsync.value!.latitude;
+        final lng = locationAsync.value!.longitude;
+        // 10km 이내의 결과를 우선적으로 반환하도록 location과 radius 설정
+        url += '&location=$lat,$lng&radius=10000';
+      }
+    } catch (e) {
+      debugPrint("위치 정보 로드 실패: $e");
+    }
+
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
@@ -636,16 +602,21 @@ class _MapScreenState extends State<MapScreen> {
       return;
     }
     try {
-      await FirebaseFirestore.instance.collection('visits').add({
-        'uid': user.uid, 'storeName': name, 'address': address, 'foodType': foodType, 'visitDate': Timestamp.fromDate(date), 'createdAt': FieldValue.serverTimestamp(), 'lat': lat, 'lng': lng, 'taggedFriends': taggedFriends.values.toList(),
-      });
       final myDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
       final myNickname = myDoc.data()?['nickname'] ?? user.email?.split('@')[0] ?? '친구';
-      for (var entry in taggedFriends.entries) {
-        await FirebaseFirestore.instance.collection('tag_requests').add({
-          'fromUid': user.uid, 'fromNickname': myNickname, 'toUid': entry.key, 'storeName': name, 'address': address, 'foodType': foodType, 'visitDate': Timestamp.fromDate(date), 'lat': lat, 'lng': lng, 'createdAt': FieldValue.serverTimestamp(),
-        });
-      }
+      
+      await ref.read(visitRepositoryProvider).saveVisit(
+        uid: user.uid,
+        userNickname: myNickname,
+        storeName: name,
+        address: address,
+        foodType: foodType,
+        visitDate: date,
+        lat: lat,
+        lng: lng,
+        taggedFriends: taggedFriends,
+      );
+
       if (!mounted) return;
       Navigator.pop(context);
       setState(() => _searchMarker = null);
@@ -655,19 +626,38 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 방문 기록 데이터 구독 및 마커 업데이트
+    ref.listen<AsyncValue<List<QueryDocumentSnapshot>>>(userVisitsProvider, (previous, next) {
+      if (next.hasValue) {
+        _allVisits = next.value!;
+        _applyFilter();
+      }
+    });
+
+    final locationAsync = ref.watch(locationProvider);
+
+    CameraPosition initialCameraPosition = _defaultCityHall;
+    if (locationAsync.hasValue && locationAsync.value != null) {
+      initialCameraPosition = CameraPosition(
+        target: LatLng(locationAsync.value!.latitude, locationAsync.value!.longitude),
+        zoom: 16.0,
+      );
+    }
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: Stack(
         children: [
           // 1. 구글 맵
-          _isMapLoading ? const Center(child: CircularProgressIndicator()) : GoogleMap(
+          locationAsync.isLoading ? const Center(child: CircularProgressIndicator()) : GoogleMap(
             onMapCreated: (controller) { 
               _googleMapController = controller; 
+              _isMapCreated = true;
               if (widget.initialTarget != null) {
                  _updateTargetFromHome();
               }
             },
-            initialCameraPosition: _initialCameraPosition!,
+            initialCameraPosition: initialCameraPosition,
             myLocationEnabled: true, myLocationButtonEnabled: true, zoomControlsEnabled: true, mapToolbarEnabled: false, compassEnabled: true,
             padding: const EdgeInsets.only(top: 100, bottom: 20),
             markers: _savedMarkers.union(_searchMarker != null ? {_searchMarker!} : {}),

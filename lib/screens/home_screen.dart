@@ -11,23 +11,24 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:autokaji/screens/friend_screen.dart';
 import 'package:autokaji/screens/tag_notification_screen.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:autokaji/providers/location_provider.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   final Function(String name, double lat, double lng) onPlaceSelected;
 
   const HomeScreen({super.key, required this.onPlaceSelected});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen> {
   String get kGoogleApiKey => dotenv.env['GOOGLE_MAPS_API_KEY'] ?? '';
 
   bool _isFoodMode = true;
   bool _isLoading = false;
   bool _isFetchingMore = false;
-  Position? _currentPosition;
 
   double _searchRadius = 500; 
   double _minRating = 0.0;    
@@ -59,7 +60,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _initCurrentLocation();
     _checkTagRequests();
     _loadFilterSettings();
   }
@@ -115,27 +115,6 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       debugPrint("알림 체크 오류: $e");
     }
-  }
-
-  Future<void> _initCurrentLocation() async {
-    try {
-      Position position = await _determinePosition();
-      if (mounted) setState(() => _currentPosition = position);
-    } catch (e) {
-      debugPrint("초기 위치 탐색 실패: $e");
-    }
-  }
-
-  Future<Position> _determinePosition() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) throw Exception('위치 서비스 꺼짐');
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) throw Exception('권한 거부');
-    }
-    if (permission == LocationPermission.deniedForever) throw Exception('영구 거부');
-    return await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
   }
 
   String? _getPhotoUrl(List<dynamic>? photos) {
@@ -234,8 +213,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      Position position = _currentPosition ?? await _determinePosition();
-      _currentPosition = position;
+      Position position = await ref.read(locationProvider.future);
 
       final params = _getGoogleSearchParams();
       final String type = params['type']!;
@@ -765,6 +743,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // [수정] 핫플레이스 섹션 (사진 로딩 적용)
   Widget _buildHotPlaces() {
+    final locationAsync = ref.watch(locationProvider);
+
     return StreamBuilder<QuerySnapshot>(
       stream: _getHotPlacesStream(),
       builder: (context, snapshot) {
@@ -783,14 +763,17 @@ class _HomeScreenState extends State<HomeScreen> {
           }
 
           double distance = 0.0;
-          if (_currentPosition != null && data['lat'] != null && data['lng'] != null) {
+          if (locationAsync.hasValue && locationAsync.value != null && data['lat'] != null && data['lng'] != null) {
             distance = Geolocator.distanceBetween(
-              _currentPosition!.latitude, _currentPosition!.longitude,
+              locationAsync.value!.latitude, locationAsync.value!.longitude,
               data['lat'], data['lng']
             );
           }
 
-          if (distance > 5000) continue;
+          if (distance > _searchRadius) continue; // [수정] 5000 -> _searchRadius
+          
+          double rating = (data['rating'] ?? 0).toDouble();
+          if (rating < _minRating) continue; // [신규] 평점 필터 적용
 
           data['distance'] = distance;
           places.add(data);
@@ -803,9 +786,9 @@ class _HomeScreenState extends State<HomeScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 4.0, vertical: 16.0),
-              child: Text("🔥 내 주변 핫플레이스 (700m)", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 16.0),
+              child: Text("🔥 내 주변 핫플레이스 (${_searchRadius.toInt()}m)", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
             SizedBox(
               height: 230, 

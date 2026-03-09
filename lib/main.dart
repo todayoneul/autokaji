@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'firebase_options.dart';
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,7 +40,11 @@ void main() async {
   }
 
   // MyApp에 첫 실행 여부 전달
-  runApp(MyApp(isFirstRun: isFirstRun));
+  runApp(
+    ProviderScope(
+      child: MyApp(isFirstRun: isFirstRun),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {

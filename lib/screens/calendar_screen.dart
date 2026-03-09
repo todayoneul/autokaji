@@ -8,15 +8,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:autokaji/providers/visit_provider.dart';
 
-class CalendarScreen extends StatefulWidget {
+class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
 
   @override
-  State<CalendarScreen> createState() => _CalendarScreenState();
+  ConsumerState<CalendarScreen> createState() => _CalendarScreenState();
 }
 
-class _CalendarScreenState extends State<CalendarScreen> {
+class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
@@ -198,7 +200,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               ),
                             );
                             if (confirm == true) {
-                              await FirebaseFirestore.instance.collection('visits').doc(doc.id).delete();
+                              await ref.read(visitRepositoryProvider).deleteVisit(doc.id);
                               if (mounted) Navigator.pop(context);
                             }
                           },
@@ -269,12 +271,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         Expanded(
                           child: ElevatedButton(
                             onPressed: () async {
-                              await FirebaseFirestore.instance.collection('visits').doc(doc.id).update({
+                              await ref.read(visitRepositoryProvider).updateVisit(doc.id, {
                                 'myRating': currentRating, 'memo': memoController.text.trim(), 'imageUrl': currentImageUrl,
                               });
                               if (mounted) Navigator.pop(context);
-                            },
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            },                            style: ElevatedButton.styleFrom(backgroundColor: Colors.black, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                             child: const Text("저장", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                           ),
                         ),
@@ -550,17 +551,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ]
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('visits')
-            .where('uid', isEqualTo: user.uid)
-            .orderBy('visitDate', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) return Center(child: Text('오류 발생: ${snapshot.error}'));
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-
-          final allVisits = snapshot.data!.docs;
+      body: ref.watch(userVisitsProvider).when(
+        data: (allVisits) {
           _allDataCache = allVisits;
 
           if (_isSearching) {
@@ -627,6 +619,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
             );
           }
         },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stack) => Center(child: Text('오류 발생: $error')),
       ),
     );
   }
