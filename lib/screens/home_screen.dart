@@ -21,6 +21,8 @@ import 'package:autokaji/services/place_search_service.dart';
 import 'package:autokaji/providers/wishlist_provider.dart';
 import 'package:autokaji/screens/wishlist_screen.dart';
 
+import 'package:autokaji/screens/course_planner_screen.dart';
+
 class HomeScreen extends ConsumerStatefulWidget {
   final Function(String name, double lat, double lng) onPlaceSelected;
 
@@ -230,6 +232,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (keywords.isNotEmpty) keyword = keywords.join(" ");
 
     return {'type': type, 'keyword': keyword};
+  }
+
+  Future<void> _navigateToCoursePlanner() async {
+    HapticFeedback.lightImpact();
+    
+    // 위치 권한 체크 및 가져오기
+    try {
+      Position position = await ref.read(locationProvider.future);
+      final locationName = '현재 위치';
+
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CoursePlannerScreen(
+              lat: position.latitude,
+              lng: position.longitude,
+              locationName: locationName,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('위치를 확인할 수 없습니다: $e')));
+      }
+    }
   }
 
   Future<void> _searchAndRecommend() async {
@@ -1296,7 +1325,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildModeToggle(),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 24),
+                  
+                  // AI 약속/데이트 코스 배너
+                  GestureDetector(
+                    onTap: _navigateToCoursePlanner,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFF3E5F5), Color(0xFFE1BEE7)], // 보라색 톤의 예쁜 그라데이션
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFFE1BEE7).withOpacity(0.4),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                            child: const Icon(Icons.auto_awesome_rounded, color: Color(0xFF9C27B0), size: 24),
+                          ),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("어디갈지 고민되시나요?", style: TextStyle(fontSize: 12, color: Color(0xFF7B1FA2), fontWeight: FontWeight.w600)),
+                                SizedBox(height: 4),
+                                Text("✨ AI 데이트/약속 코스 짜기", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.black87, letterSpacing: -0.5)),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.arrow_forward_ios_rounded, size: 16, color: Color(0xFF9C27B0)),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
                   Text(
                     _isFoodMode ? "어떤 종류가 땡기세요?" : "어디로 갈까요?", 
                     style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: AppColors.textPrimary),
