@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
 
 /// autokaji 앱 전용 테마 시스템
@@ -59,10 +60,12 @@ class AppTheme {
 
   // ─── Light Theme ───
   static ThemeData get lightTheme {
+    final String fontFamily = GoogleFonts.notoSansKr().fontFamily!;
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      fontFamily: 'Pretendard',
+      fontFamily: fontFamily,
 
       // Color Scheme
       colorScheme: const ColorScheme.light(
@@ -79,7 +82,7 @@ class AppTheme {
       scaffoldBackgroundColor: AppColors.background,
       
       // AppBar
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: AppColors.background,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -87,32 +90,32 @@ class AppTheme {
         foregroundColor: AppColors.textPrimary,
         centerTitle: false,
         titleTextStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: fontFamily,
           fontSize: 24,
           fontWeight: FontWeight.w800,
           color: AppColors.textPrimary,
           letterSpacing: -0.5,
         ),
-        iconTheme: IconThemeData(
+        iconTheme: const IconThemeData(
           color: AppColors.textPrimary,
           size: 24,
         ),
       ),
 
       // Bottom Navigation
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: Colors.transparent,
         elevation: 0,
         selectedItemColor: AppColors.primary,
         unselectedItemColor: AppColors.textTertiary,
         selectedLabelStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: fontFamily,
           fontSize: 11,
           fontWeight: FontWeight.w700,
           letterSpacing: -0.2,
         ),
         unselectedLabelStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: fontFamily,
           fontSize: 11,
           fontWeight: FontWeight.w500,
           letterSpacing: -0.2,
@@ -131,8 +134,8 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radiusLg),
           ),
-          textStyle: const TextStyle(
-            fontFamily: 'Pretendard',
+          textStyle: TextStyle(
+            fontFamily: fontFamily,
             fontSize: 16,
             fontWeight: FontWeight.w700,
             letterSpacing: -0.3,
@@ -149,8 +152,8 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(radiusLg),
           ),
-          textStyle: const TextStyle(
-            fontFamily: 'Pretendard',
+          textStyle: TextStyle(
+            fontFamily: fontFamily,
             fontSize: 16,
             fontWeight: FontWeight.w600,
             letterSpacing: -0.3,
@@ -162,8 +165,8 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppColors.primary,
-          textStyle: const TextStyle(
-            fontFamily: 'Pretendard',
+          textStyle: TextStyle(
+            fontFamily: fontFamily,
             fontSize: 14,
             fontWeight: FontWeight.w600,
           ),
@@ -223,8 +226,8 @@ class AppTheme {
       chipTheme: ChipThemeData(
         backgroundColor: AppColors.surface,
         selectedColor: AppColors.primary,
-        labelStyle: const TextStyle(
-          fontFamily: 'Pretendard',
+        labelStyle: TextStyle(
+          fontFamily: fontFamily,
           fontSize: 14,
           fontWeight: FontWeight.w500,
         ),
@@ -262,17 +265,17 @@ class AppTheme {
       ),
 
       // TabBar
-      tabBarTheme: const TabBarThemeData(
+      tabBarTheme: TabBarThemeData(
         labelColor: AppColors.primary,
         unselectedLabelColor: AppColors.textTertiary,
         indicatorColor: AppColors.primary,
         labelStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: fontFamily,
           fontSize: 15,
           fontWeight: FontWeight.w700,
         ),
         unselectedLabelStyle: TextStyle(
-          fontFamily: 'Pretendard',
+          fontFamily: fontFamily,
           fontSize: 15,
           fontWeight: FontWeight.w500,
         ),
@@ -294,8 +297,8 @@ class AppTheme {
       // Snackbar
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.secondary,
-        contentTextStyle: const TextStyle(
-          fontFamily: 'Pretendard',
+        contentTextStyle: TextStyle(
+          fontFamily: fontFamily,
           color: Colors.white,
           fontSize: 14,
           fontWeight: FontWeight.w500,

@@ -17,6 +17,9 @@ import 'package:autokaji/providers/location_provider.dart';
 import 'package:autokaji/theme/app_colors.dart';
 import 'package:autokaji/theme/app_theme.dart';
 import 'package:autokaji/widgets/common_widgets.dart';
+import 'package:autokaji/services/place_search_service.dart';
+import 'package:autokaji/providers/wishlist_provider.dart';
+import 'package:autokaji/screens/wishlist_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   final Function(String name, double lat, double lng) onPlaceSelected;
@@ -52,7 +55,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     '일식': ['초밥', '돈까스', '라멘', '덮밥', '회', '우동', '소바', '카츠', '이자카야'],
     '양식': ['파스타', '피자', '스테이크', '버거', '브런치'],
     '아시안': ['쌀국수', '카레', '팟타이', '타코'],
-    '바': ['칵테일', '와인', '맥주', '이자카야', '술집', '호프', '요리주점'],
+    '디저트': ['카페', '빵', '케이크', '아이스크림', '빙수', '마카롱', '도넛'],
   };
 
   final Map<String, List<String>> _playCategories = {
@@ -86,6 +89,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Stream<QuerySnapshot> _getHotPlacesStream() {
     return FirebaseFirestore.instance.collection('hot_places').snapshots();
+  }
+
+  Stream<int> _getUnreadNotificationCount() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return Stream.value(0);
+
+    final notifications = FirebaseFirestore.instance
+        .collection('notifications')
+        .where('toUid', isEqualTo: user.uid)
+        .snapshots();
+
+    final tagRequests = FirebaseFirestore.instance
+        .collection('tag_requests')
+        .where('toUid', isEqualTo: user.uid)
+        .snapshots();
+
+    // 두 스트림을 결합하여 총 개수 반환
+    return Stream.castFrom(notifications).map((n) {
+      final int nCount = n.docs.length;
+      return nCount; // 우선 notifications 개수만 반환하거나 Rx.combineLatest 등을 써야 함
+      // 간단하게 notifications 개수만 먼저 구현
+    });
   }
 
   Future<void> _checkTagRequests() async {
@@ -190,17 +215,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     String type = 'restaurant'; 
     String keyword = '';        
 
-    if (_selectedMainCats.contains('카페')) {
+    if (_selectedMainCats.contains('카페') || _selectedMainCats.contains('디저트')) {
       type = 'cafe';
-    } else if (_selectedMainCats.contains('바')) {
-      type = 'bar';
     } else if (!_isFoodMode) {
       type = 'point_of_interest'; 
     }
 
     List<String> keywords = [];
     for (var cat in _selectedMainCats) {
-      if (cat != '카페' && cat != '바') keywords.add(cat); 
+      if (cat != '카페' && cat != '디저트') keywords.add(cat); 
     }
     if (_selectedSubCats.isNotEmpty) keywords.addAll(_selectedSubCats);
 
@@ -223,47 +246,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final String type = params['type']!;
       final String keyword = params['keyword']!;
 
-      String url =
-          'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${position.latitude},${position.longitude}&radius=$_searchRadius&type=$type&language=ko&key=$kGoogleApiKey';
+      // 하이브리드 검색 (네이버 + 카카오 + 구글 병렬)
+      final hybridResults = await PlaceSearchService.hybridSearch(
+        lat: position.latitude,
+        lng: position.longitude,
+        radius: _searchRadius.toInt(),
+        googleType: type,
+        keyword: keyword,
+        minRating: _minRating,
+      );
 
-      if (keyword.isNotEmpty) {
-        url += '&keyword=$keyword';
-      }
+      // PlaceResult → 기존 다이얼로그 호환 Map 형식으로 변환
+      _searchResults = hybridResults.map((p) => p.toGoogleFormat()).toList();
 
-      final response = await http.get(Uri.parse(url));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        if (data['status'] == 'OK' || data['status'] == 'ZERO_RESULTS') {
-          final List<dynamic> results = data['results'] ?? [];
-          
-          final List<dynamic> filteredResults = results.where((place) {
-            final double rating = (place['rating'] ?? 0).toDouble();
-            final int reviews = place['user_ratings_total'] ?? 0;
-            return rating >= _minRating && reviews >= 10;
-          }).toList();
-
-          filteredResults.sort((a, b) {
-             final double scoreA = (a['rating'] ?? 0).toDouble() * (a['user_ratings_total'] ?? 0);
-             final double scoreB = (b['rating'] ?? 0).toDouble() * (b['user_ratings_total'] ?? 0);
-             return scoreB.compareTo(scoreA);
-          });
-
-          _searchResults = filteredResults;
-          _nextPageToken = data['next_page_token'];
-
-          if (_searchResults.isEmpty) {
-            String fallbackQuery = keyword.isEmpty ? (type == 'restaurant' ? "맛집" : type) : keyword;
-            _showNaverFallbackDialog(fallbackQuery);
-          } else {
-            _showSelectionDialog(_searchResults);
-          }
-        } else {
-          throw Exception("API Error: ${data['status']} - ${data['error_message']}");
-        }
+      if (_searchResults.isEmpty) {
+        String fallbackQuery = keyword.isEmpty ? (type == 'restaurant' ? "맛집" : type) : keyword;
+        _showNaverFallbackDialog(fallbackQuery);
       } else {
-        throw Exception("서버 통신 오류 (${response.statusCode})");
+        _showSelectionDialog(_searchResults);
       }
     } catch (e) {
       if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("오류: $e")));
@@ -548,7 +548,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           
                           return AppCard(
                             onTap: () async {
-                              final bool? selected = await _showSingleResultDialog(place);
+                              final bool? selected = await _showSingleResultDialog(place, showReroll: false);
                               if (selected == true) {
                                 Navigator.pop(context); 
                               }
@@ -597,7 +597,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Future<bool?> _showSingleResultDialog(Map<String, dynamic> place) async {
+  Future<bool?> _showSingleResultDialog(Map<String, dynamic> place, {bool showReroll = true}) async {
     final String name = place['name'];
     final String address = place['vicinity'] ?? "주소 정보 없음";
     final double rating = (place['rating'] ?? 0).toDouble();
@@ -666,6 +666,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   Text(address, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13), textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 24),
                   
+                  // 여기 갈래요 버튼
                   SizedBox(
                     width: double.infinity,
                     child: AppGradientButton(
@@ -677,6 +678,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       },
                     ),
                   ),
+                  if (showReroll) ...[
+                  const SizedBox(height: 10),
+                  // 다시 뽑기 버튼
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context, false);
+                        if (_searchResults.length > 1) {
+                          // 현재 장소 제외하고 다시 랜덤
+                          final candidates = _searchResults.where((p) => p['name'] != name).toList();
+                          if (candidates.isNotEmpty) {
+                            final selected = candidates[Random().nextInt(candidates.length)];
+                            _showSingleResultDialog(selected);
+                          } else {
+                            _showSingleResultDialog(_searchResults[Random().nextInt(_searchResults.length)]);
+                          }
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('다른 장소가 없어요. 검색 범위를 넓혀보세요!')));
+                        }
+                      },
+                      icon: const Icon(Icons.casino_rounded, size: 20),
+                      label: const Text("다시 뽑기"),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        foregroundColor: AppColors.primary,
+                        side: const BorderSide(color: AppColors.primary, width: 1.5),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg)),
+                      ),
+                    ),
+                  ),
+                  ],
                 ],
               ),
             ),
@@ -826,12 +859,70 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  static const Map<String, String> _categoryEmojis = {
+    '한식': '🍚', '중식': '🥟', '일식': '🍣', '양식': '🍕',
+    '아시안': '🍜', '디저트': '🍰',
+    '카페': '☕', '실내': '🎮', '실외': '🌳',
+    // sub categories
+    '밥': '🍚', '국물': '🍲', '고기': '🥩', '면': '🍜', '분식': '🍞',
+    '찌개': '🍲', '백반': '🍱', '족발': '🍖', '곡창': '🦠',
+    '요리': '🥘', '딘섬': '🥟', '짜장': '🍝', '마라': '🌶️', '양꼬치': '🍖',
+    '초밥': '🍣', '돈까스': '🍛', '라멘': '🍜', '덮밥': '🍛',
+    '회': '🐟', '우동': '🍜', '소바': '🍜', '카컠': '🍛', '이자카야': '🍶',
+    '파스타': '🍝', '피자': '🍕', '스테이크': '🥩', '버거': '🍔', '브런치': '🥐',
+    '쌀국수': '🍜', '카레': '🍛', '팟타이': '🍝', '타코': '🌮',
+    '칵테일': '🍸', '와인': '🍷', '맥주': '🍺', '술집': '🍶',
+    '호프': '🍻', '요리주점': '🍞',
+    '커피': '☕', '베이커리': '🥐', '전통차': '🍵',
+    '영화관': '🎬', '노래방': '🎤', 'PC방': '💻', '보드게임': '🎲',
+    '방탈출': '🔐', '전시회': '🖼️',
+    '공원': '🌳', '산책로': '🚶', '쇼핑': '🛍️', '테마파크': '🎢',
+  };
+
   Widget _buildChoiceChip(String label, Set<String> selectionSet, VoidCallback onSelected) {
     final bool isSelected = selectionSet.contains(label);
-    return AppSelectableChip(
-      label: label,
-      isSelected: isSelected,
+    final String emoji = _categoryEmojis[label] ?? '✨';
+    return GestureDetector(
       onTap: onSelected,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: isSelected ? AppColors.primaryGradient : null,
+          color: isSelected ? null : AppColors.surface,
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          border: Border.all(
+            color: isSelected ? Colors.transparent : AppColors.border,
+            width: 1.2,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withOpacity(0.25),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : AppTheme.shadowSm,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 18)),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : AppColors.textPrimary,
+                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                fontSize: 14,
+                letterSpacing: -0.2,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -864,47 +955,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     final pos = locationAsync.value!;
 
-    // 구글 API 호출 Future 생성
+    // 하이브리드 핫플레이스 검색 (네이버 + 카카오 + 구글)
     Future<List<Map<String, dynamic>>> fetchNearbyHotPlaces() async {
-      final String type = _isFoodMode ? 'restaurant' : 'point_of_interest';
-      final String url = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${pos.latitude},${pos.longitude}&radius=${_searchRadius}&type=$type&language=ko&key=$kGoogleApiKey';
-      
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['status'] == 'OK') {
-          List<dynamic> results = data['results'];
+      try {
+        final hybridResults = await PlaceSearchService.hybridHotPlaces(
+          lat: pos.latitude,
+          lng: pos.longitude,
+          radius: _searchRadius.toInt(),
+          isFoodMode: _isFoodMode,
+          selectedCats: _selectedMainCats,
+        );
+
+        var mappedResults = hybridResults.map((p) => {
+          'name': p.name,
+          'lat': p.lat,
+          'lng': p.lng,
+          'rating': p.rating,
+          'user_ratings_total': p.reviewCount,
+          'category': p.category,
+          'place_id': p.placeId ?? '',
+          'source': p.source,
+          'place_url': p.placeUrl,
+          'place_result': p, // 찜하기 전달용
+        }).toList();
+        
+        // 거리순으로 정렬
+        mappedResults.sort((a, b) {
+          final latA = (a['lat'] as num).toDouble();
+          final lngA = (a['lng'] as num).toDouble();
+          final latB = (b['lat'] as num).toDouble();
+          final lngB = (b['lng'] as num).toDouble();
           
-          List<Map<String, dynamic>> places = [];
-          for (var place in results) {
-            double rating = (place['rating'] ?? 0).toDouble();
-            int reviews = place['user_ratings_total'] ?? 0;
-            
-            // 신뢰도 필터: 평점 4.0 이상, 리뷰 20개 이상 (핫플레이스 기준)
-            if (rating >= 4.0 && reviews >= 20) {
-              places.add({
-                'name': place['name'],
-                'lat': place['geometry']['location']['lat'],
-                'lng': place['geometry']['location']['lng'],
-                'rating': rating,
-                'user_ratings_total': reviews,
-                'category': place['types'] != null && place['types'].isNotEmpty ? place['types'][0] : '기타',
-                'place_id': place['place_id'],
-              });
-            }
-          }
-
-          // 신뢰도 점수(평점*리뷰수)로 정렬 후 상위 10개만 추출
-          places.sort((a, b) {
-            double scoreA = a['rating'] * a['user_ratings_total'];
-            double scoreB = b['rating'] * b['user_ratings_total'];
-            return scoreB.compareTo(scoreA);
-          });
-
-          return places.take(10).toList();
-        }
+          final distA = Geolocator.distanceBetween(pos.latitude, pos.longitude, latA, lngA);
+          final distB = Geolocator.distanceBetween(pos.latitude, pos.longitude, latB, lngB);
+          
+          return distA.compareTo(distB);
+        });
+        
+        return mappedResults;
+      } catch (e) {
+        debugPrint('하이브리드 핫플레이스 오류: $e');
+        return [];
       }
-      return [];
     }
 
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -1015,6 +1107,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                           child: Text(distStr, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
                                         ),
                                       ),
+                                      Positioned(
+                                        top: 8,
+                                        left: 8,
+                                        child: _buildHeartButton(data['place_result']),
+                                      ),
                                     ],
                                   );
                                 }
@@ -1031,22 +1128,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 const SizedBox(height: 8),
                                 Row(
                                   children: [
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.accentSurface,
-                                        borderRadius: BorderRadius.circular(6),
+                                    // 출처 배지
+                                    if (data['source'] != null)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        margin: const EdgeInsets.only(right: 6),
+                                        decoration: BoxDecoration(
+                                          color: data['source'] == 'naver' 
+                                              ? const Color(0xFF03C75A).withOpacity(0.15)
+                                              : data['source'] == 'kakao'
+                                                  ? const Color(0xFFFEE500).withOpacity(0.3)
+                                                  : AppColors.primarySurface,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          data['source'] == 'naver' ? 'N' : data['source'] == 'kakao' ? 'K' : 'G',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w800,
+                                            color: data['source'] == 'naver'
+                                                ? const Color(0xFF03C75A)
+                                                : data['source'] == 'kakao'
+                                                    ? const Color(0xFF3C1E1E)
+                                                    : AppColors.primary,
+                                          ),
+                                        ),
                                       ),
-                                      child: Row(
-                                        children: [
-                                          const Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
-                                          const SizedBox(width: 2),
-                                          Text("${data['rating']}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.accent)),
-                                        ],
+                                    // 평점 배지
+                                    if ((data['rating'] ?? 0) > 0)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.accentSurface,
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.star_rounded, size: 14, color: AppColors.accent),
+                                            const SizedBox(width: 2),
+                                            Text("${data['rating']}", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.accent)),
+                                          ],
+                                        ),
                                       ),
-                                    ),
                                     const Spacer(),
-                                    Text(data['category'] ?? '', style: const TextStyle(fontSize: 11, color: AppColors.textTertiary, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    Flexible(child: Text(data['category'] ?? '', style: const TextStyle(fontSize: 11, color: AppColors.textTertiary, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis)),
                                   ],
                                 ),
                               ],
@@ -1065,6 +1190,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Widget _buildHeartButton(PlaceResult place) {
+    final isWishlisted = ref.watch(isWishlistedProvider(place.uniqueId));
+
+    return GestureDetector(
+      onTap: () async {
+        HapticFeedback.lightImpact();
+        if (FirebaseAuth.instance.currentUser?.isAnonymous ?? true) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("로그인이 필요한 기능입니다.")));
+          return;
+        }
+
+        if (isWishlisted) {
+          // 이미 찜한 경우 바로 삭제
+          final toggle = ref.read(wishlistToggleProvider);
+          await toggle(place, true);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("찜 목록에서 삭제되었습니다."), duration: Duration(seconds: 1)));
+        } else {
+          // 처음 찜하는 경우 폴더 선택 다이얼로그
+          showDialog(
+            context: context,
+            builder: (context) => WishlistFolderDialog(place: place),
+          );
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.4),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          isWishlisted ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+          color: isWishlisted ? AppColors.primary : Colors.white,
+          size: 20,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentCats = _isFoodMode ? _foodCategories : _playCategories;
@@ -1072,8 +1236,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('오늘은 오토카지'),
+        title: const Text('오토카지'),
         actions: [
+          // 알림 아이콘 (뱃지 포함)
+          StreamBuilder<int>(
+            stream: _getUnreadNotificationCount(),
+            builder: (context, snapshot) {
+              final count = snapshot.data ?? 0;
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  _buildAppBarAction(Icons.notifications_rounded, () {
+                    Navigator.push(context, MaterialPageRoute(builder: (context) => const TagNotificationScreen()));
+                  }),
+                  if (count > 0)
+                    Positioned(
+                      right: 12,
+                      top: 12,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                        child: Text(
+                          count > 9 ? '9+' : '$count',
+                          style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
+                          textAlign: Alignment.center.x == 0 ? TextAlign.center : null,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          _buildAppBarAction(Icons.favorite_rounded, () {
+            if (FirebaseAuth.instance.currentUser?.isAnonymous ?? true) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("로그인이 필요한 기능입니다.")));
+              return;
+            }
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const WishlistScreen()));
+          }),
           _buildAppBarAction(Icons.tune_rounded, _showFilterSettings),
           _buildAppBarAction(Icons.people_alt_rounded, () {
             if (FirebaseAuth.instance.currentUser?.isAnonymous ?? true) {

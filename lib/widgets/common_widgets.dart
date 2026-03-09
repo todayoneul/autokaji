@@ -1,100 +1,77 @@
 import 'dart:ui';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:autokaji/theme/app_colors.dart';
 import 'package:autokaji/theme/app_theme.dart';
+import 'package:autokaji/services/place_search_service.dart';
+import 'package:autokaji/providers/wishlist_provider.dart';
 
-/// 그라데이션 CTA 버튼
-class AppGradientButton extends StatefulWidget {
+/// 앱 전체에서 사용하는 공통 그라데이션 버튼
+class AppGradientButton extends StatelessWidget {
   final String text;
-  final VoidCallback? onPressed;
+  final VoidCallback? onTap;
+  final VoidCallback? onPressed; // Alias for onTap
   final bool isLoading;
-  final IconData? icon;
+  final double? width;
   final double height;
+  final IconData? icon;
   final Gradient? gradient;
 
   const AppGradientButton({
     super.key,
     required this.text,
+    this.onTap,
     this.onPressed,
     this.isLoading = false,
-    this.icon,
+    this.width,
     this.height = 56,
+    this.icon,
     this.gradient,
   });
 
   @override
-  State<AppGradientButton> createState() => _AppGradientButtonState();
-}
-
-class _AppGradientButtonState extends State<AppGradientButton>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 150),
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final bool isEnabled = widget.onPressed != null && !widget.isLoading;
-
-    return GestureDetector(
-      onTapDown: isEnabled ? (_) => _controller.forward() : null,
-      onTapUp: isEnabled ? (_) => _controller.reverse() : null,
-      onTapCancel: isEnabled ? () => _controller.reverse() : null,
-      onTap: isEnabled ? widget.onPressed : null,
-      child: AnimatedBuilder(
-        animation: _scaleAnimation,
-        builder: (context, child) {
-          return Transform.scale(
-            scale: _scaleAnimation.value,
-            child: child,
-          );
-        },
-        child: Container(
-          height: widget.height,
-          decoration: BoxDecoration(
-            gradient: isEnabled
-                ? (widget.gradient ?? AppColors.primaryGradient)
-                : null,
-            color: isEnabled ? null : AppColors.textTertiary.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(AppTheme.radiusXl),
-            boxShadow: isEnabled ? AppTheme.shadowPrimary : null,
+    final effectiveTap = onTap ?? onPressed;
+    
+    return Container(
+      width: width ?? double.infinity,
+      height: height,
+      decoration: BoxDecoration(
+        gradient: gradient ?? AppColors.primaryGradient,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        boxShadow: [
+          BoxShadow(
+            color: (gradient?.colors.first ?? AppColors.primary).withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
           ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: isLoading ? null : effectiveTap,
+          borderRadius: BorderRadius.circular(AppTheme.radiusLg),
           child: Center(
-            child: widget.isLoading
+            child: isLoading
                 ? const SizedBox(
-                    height: 24,
                     width: 24,
+                    height: 24,
                     child: CircularProgressIndicator(
                       color: Colors.white,
                       strokeWidth: 2.5,
                     ),
                   )
                 : Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      if (widget.icon != null) ...[
-                        Icon(widget.icon, color: Colors.white, size: 22),
+                      if (icon != null) ...[
+                        Icon(icon, color: Colors.white, size: 20),
                         const SizedBox(width: 8),
                       ],
                       Text(
-                        widget.text,
+                        text,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 17,
@@ -110,9 +87,6 @@ class _AppGradientButtonState extends State<AppGradientButton>
     );
   }
 }
-
-/// AnimatedBuilder (Flutter 기본의 AnimatedBuilder와 동일 - alias로 사용)
-/// Flutter의 기본 AnimatedBuilder를 사용합니다.
 
 /// 통일된 카드 위젯
 class AppCard extends StatelessWidget {
@@ -401,6 +375,261 @@ class SectionHeader extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 찜하기 폴더 선택 다이얼로그
+class WishlistFolderDialog extends ConsumerStatefulWidget {
+  final PlaceResult place;
+
+  const WishlistFolderDialog({super.key, required this.place});
+
+  @override
+  ConsumerState<WishlistFolderDialog> createState() => _WishlistFolderDialogState();
+}
+
+class _WishlistFolderDialogState extends ConsumerState<WishlistFolderDialog> {
+  late List<String> _selectedTags;
+  late List<String> _selectedFriendIds;
+  final TextEditingController _tagController = TextEditingController();
+  final List<String> _defaultFolders = ['데이트 후보', '나의 또간집', '가고싶은곳', '회식장소'];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedTags = List<String>.from(widget.place.tags);
+    _selectedFriendIds = [];
+  }
+
+  @override
+  void dispose() {
+    _tagController.dispose();
+    super.dispose();
+  }
+
+  void _toggleTag(String tag) {
+    setState(() {
+      if (_selectedTags.contains(tag)) {
+        _selectedTags.remove(tag);
+      } else {
+        _selectedTags.add(tag);
+      }
+    });
+  }
+
+  void _toggleFriend(String uid) {
+    setState(() {
+      if (_selectedFriendIds.contains(uid)) {
+        _selectedFriendIds.remove(uid);
+      } else {
+        _selectedFriendIds.add(uid);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final allTagsAsync = ref.watch(wishlistTagsProvider);
+    final friendsAsync = ref.watch(friendsProvider);
+
+    return AlertDialog(
+      backgroundColor: AppColors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusXl)),
+      title: const Text('찜하기 설정', style: TextStyle(fontWeight: FontWeight.bold)),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.place.name,
+                style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700, fontSize: 16),
+              ),
+              const SizedBox(height: 20),
+              
+              // 1. 폴더 선택
+              const Text('폴더 선택', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 10),
+              allTagsAsync.when(
+                data: (tags) {
+                  final combinedTags = {..._defaultFolders, ...tags}.toList()..sort();
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: combinedTags.map((tag) => FilterChip(
+                      label: Text(tag),
+                      selected: _selectedTags.contains(tag),
+                      onSelected: (_) => _toggleTag(tag),
+                      selectedColor: AppColors.primary.withOpacity(0.15),
+                      checkmarkColor: AppColors.primary,
+                      labelStyle: TextStyle(
+                        color: _selectedTags.contains(tag) ? AppColors.primary : AppColors.textPrimary,
+                        fontSize: 12,
+                        fontWeight: _selectedTags.contains(tag) ? FontWeight.bold : FontWeight.normal,
+                      ),
+                      backgroundColor: AppColors.cardBackground,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                        side: BorderSide(color: _selectedTags.contains(tag) ? AppColors.primary : AppColors.borderLight),
+                      ),
+                    )).toList(),
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (err, stack) {
+                  debugPrint("태그 로딩 에러: $err");
+                  // 에러 발생 시 기본 태그만이라도 표시
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _defaultFolders.map((tag) => FilterChip(
+                      label: Text(tag),
+                      selected: _selectedTags.contains(tag),
+                      onSelected: (_) => _toggleTag(tag),
+                      backgroundColor: AppColors.cardBackground,
+                    )).toList(),
+                  );
+                },
+              ),
+              
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _tagController,
+                      decoration: InputDecoration(
+                        hintText: '새 폴더 이름',
+                        hintStyle: TextStyle(color: AppColors.textTertiary.withOpacity(0.6), fontSize: 13),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
+                      ),
+                      onSubmitted: (val) {
+                        if (val.trim().isNotEmpty) {
+                          _toggleTag(val.trim());
+                          _tagController.clear();
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    onPressed: () {
+                      if (_tagController.text.trim().isNotEmpty) {
+                        _toggleTag(_tagController.text.trim());
+                        _tagController.clear();
+                      }
+                    },
+                    icon: const Icon(Icons.add_circle, color: AppColors.primary),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+              
+              // 2. 친구 태그
+              const Text('같이 가고 싶은 친구 태그', style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 10),
+              friendsAsync.when(
+                data: (friends) {
+                  if (friends.isEmpty) {
+                    return const Text('등록된 친구가 없습니다.', style: TextStyle(fontSize: 12, color: AppColors.textTertiary));
+                  }
+                  return SizedBox(
+                    height: 80,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: friends.length,
+                      separatorBuilder: (context, index) => const SizedBox(width: 12),
+                      itemBuilder: (context, index) {
+                        final friend = friends[index];
+                        final bool isSelected = _selectedFriendIds.contains(friend['uid']);
+                        
+                        return GestureDetector(
+                          onTap: () => _toggleFriend(friend['uid']),
+                          child: Column(
+                            children: [
+                              Stack(
+                                children: [
+                                  CircleAvatar(
+                                    radius: 24,
+                                    backgroundColor: isSelected ? AppColors.primary : AppColors.borderLight,
+                                    backgroundImage: friend['photoUrl'] != null 
+                                        ? NetworkImage(friend['photoUrl']) 
+                                        : null,
+                                    child: friend['photoUrl'] == null 
+                                        ? const Icon(Icons.person, color: Colors.white) 
+                                        : null,
+                                  ),
+                                  if (isSelected)
+                                    Positioned(
+                                      right: 0,
+                                      bottom: 0,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(2),
+                                        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                                        child: const Icon(Icons.check_circle, color: AppColors.primary, size: 16),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                friend['nickname'],
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (_, __) => const Text('친구를 불러올 수 없습니다.'),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('취소', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            ref.read(wishlistToggleProvider)(
+              widget.place, 
+              false, 
+              tags: _selectedTags,
+              taggedUserIds: _selectedFriendIds,
+            );
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('"${widget.place.name}"이(가) 저장되었습니다.'),
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: AppColors.primary,
+              ),
+            );
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
+          ),
+          child: const Text('저장', style: TextStyle(fontWeight: FontWeight.bold)),
+        ),
+      ],
     );
   }
 }

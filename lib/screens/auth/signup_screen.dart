@@ -15,6 +15,7 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
+  final _nicknameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _passwordConfirmController = TextEditingController();
@@ -25,6 +26,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
   @override
   void dispose() {
+    _nicknameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _passwordConfirmController.dispose();
@@ -63,6 +65,8 @@ class _SignupScreenState extends State<SignupScreen> {
       );
 
       if (userCredential.user != null) {
+        final nickname = _nicknameController.text.trim();
+        await userCredential.user!.updateDisplayName(nickname);
         await FirebaseFirestore.instance
             .collection('users')
             .doc(userCredential.user!.uid)
@@ -71,7 +75,8 @@ class _SignupScreenState extends State<SignupScreen> {
           'uid': userCredential.user!.uid,
           'createdAt': FieldValue.serverTimestamp(),
           'userType': 'member',
-          'nickname': '사용자',
+          'nickname': nickname,
+          'nicknameSet': true,
         });
       }
       
@@ -131,6 +136,26 @@ class _SignupScreenState extends State<SignupScreen> {
                 ),
                 
                 const SizedBox(height: 48),
+                TextFormField(
+                  controller: _nicknameController,
+                  maxLength: 10,
+                  decoration: InputDecoration(
+                    labelText: '닉네임',
+                    prefixIcon: const Icon(Icons.person_outline_rounded),
+                    helperText: '친구들이 나를 찾을 때 사용해요 (2~10자)',
+                    helperStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                    filled: true,
+                    fillColor: AppColors.surfaceVariant,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: BorderSide.none),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: const BorderSide(color: AppColors.primary, width: 1.5)),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) return '닉네임을 입력하세요.';
+                    if (value.trim().length < 2) return '2자 이상 입력해주세요.';
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 14),
                 TextFormField(
                   controller: _emailController,
                   decoration: InputDecoration(

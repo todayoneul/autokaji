@@ -1,7 +1,7 @@
 import 'package:google_maps_cluster_manager/google_maps_cluster_manager.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-class MapPlace with ClusterItem {
+class MapPlace implements ClusterItem {
   final String id;
   final String name;
   final LatLng latLng;
@@ -18,4 +18,7 @@ class MapPlace with ClusterItem {
 
   @override
   LatLng get location => latLng;
+
+  @override
+  String get geohash => id; // Use id as geohash or let ClusterManager handle it if possible
 }

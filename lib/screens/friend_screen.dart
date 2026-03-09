@@ -35,6 +35,13 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
+  String _displayEmail(String email) {
+    if (email.contains('@autokaji.com') && email.startsWith('kakao_')) {
+      return '카카오 로그인 사용자';
+    }
+    return email;
+  }
+
   Future<void> _searchUser() async {
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
@@ -101,8 +108,10 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
         return;
       }
 
+      // notifications 컬렉션에서 중복 확인
       final sentCheck = await FirebaseFirestore.instance
-          .collection('friend_requests')
+          .collection('notifications')
+          .where('type', isEqualTo: 'friend_request')
           .where('fromUid', isEqualTo: myUid)
           .where('toUid', isEqualTo: targetUid)
           .get();
@@ -113,7 +122,8 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
       }
 
       final receivedCheck = await FirebaseFirestore.instance
-          .collection('friend_requests')
+          .collection('notifications')
+          .where('type', isEqualTo: 'friend_request')
           .where('fromUid', isEqualTo: targetUid)
           .where('toUid', isEqualTo: myUid)
           .get();
@@ -126,15 +136,16 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
       final myDoc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
       final myNickname = myDoc.data()?['nickname'] ?? '알 수 없음';
 
-      await FirebaseFirestore.instance.collection('friend_requests').add({
+      await FirebaseFirestore.instance.collection('notifications').add({
+        'type': 'friend_request',
         'fromUid': myUid,
         'fromEmail': _currentUser!.email,
         'fromNickname': myNickname,
         'toUid': targetUid,
         'toEmail': targetEmail,
         'toNickname': targetNickname,
-        'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
+        'isRead': false,
       });
 
       if(mounted) {
@@ -149,7 +160,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
     final data = requestDoc.data() as Map<String, dynamic>;
     final String fromUid = data['fromUid'];
     final String fromNickname = data['fromNickname'];
-    final String fromEmail = data['fromEmail'];
+    final String fromEmail = data['fromEmail'] ?? '';
     final String toUid = data['toUid'];
 
     WriteBatch batch = FirebaseFirestore.instance.batch();
@@ -169,7 +180,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
   }
 
   Future<void> _rejectRequest(String docId) async {
-    await FirebaseFirestore.instance.collection('friend_requests').doc(docId).delete();
+    await FirebaseFirestore.instance.collection('notifications').doc(docId).delete();
   }
 
   @override
@@ -177,7 +188,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text("친구 관리"),
+        title: const Text("친구 관리", style: TextStyle(fontWeight: FontWeight.bold)),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -192,55 +203,55 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
           // [탭 1] 내 친구 목록 + 검색
           Column(
             children: [
-              // 검색 영역
+              // 검색바
               Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: "이메일 또는 닉네임 검색",
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    filled: true,
-                    fillColor: AppColors.surfaceVariant,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppTheme.radiusLg), borderSide: BorderSide.none),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.search_rounded, color: AppColors.primary),
-                      onPressed: _searchUser,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        decoration: InputDecoration(
+                          hintText: "닉네임 또는 이메일 검색",
+                          prefixIcon: const Icon(Icons.search),
+                          filled: true,
+                          fillColor: AppColors.surface,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                        onSubmitted: (_) => _searchUser(),
+                      ),
                     ),
-                  ),
-                  onSubmitted: (_) => _searchUser(),
+                    const SizedBox(width: 10),
+                    AppGradientButton(
+                      text: "검색",
+                      width: 80,
+                      height: 50,
+                      onPressed: _searchUser,
+                      isLoading: _isSearching,
+                    ),
+                  ],
                 ),
               ),
-              
-              if (_isSearching) const LinearProgressIndicator(color: AppColors.primary),
 
+              // 검색 결과
               if (_searchResults.isNotEmpty)
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 200),
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-                    border: Border.all(color: AppColors.borderLight),
-                    boxShadow: AppTheme.shadowMd,
-                  ),
-                  child: ListView.separated(
-                    shrinkWrap: true,
+                SizedBox(
+                  height: 100,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: _searchResults.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1, color: AppColors.divider),
                     itemBuilder: (context, index) {
                       final user = _searchResults[index];
                       return ListTile(
-                        leading: Container(
-                          width: 40, height: 40,
-                          decoration: BoxDecoration(
-                            color: AppColors.primarySurface,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.person_rounded, color: AppColors.primary, size: 22),
+                        leading: CircleAvatar(
+                          backgroundColor: AppColors.primarySurface,
+                          child: const Icon(Icons.person, color: AppColors.primary),
                         ),
-                        title: Text(user['nickname'] ?? '이름 없음', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        subtitle: Text(user['email'] ?? '', style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
+                        title: Text(user['nickname'] ?? '이름 없음', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text(_displayEmail(user['email'] ?? ''), style: const TextStyle(color: AppColors.textTertiary, fontSize: 12)),
                         trailing: ElevatedButton(
                           onPressed: () => _sendFriendRequest(user['uid'], user['nickname'] ?? '이름 없음', user['email'] ?? ''),
                           style: ElevatedButton.styleFrom(
@@ -328,7 +339,7 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
                                       children: [
                                         Text(nickname, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                                         const SizedBox(height: 2),
-                                        Text(email, style: const TextStyle(color: AppColors.textTertiary, fontSize: 13)),
+                                        Text(_displayEmail(email), style: const TextStyle(color: AppColors.textTertiary, fontSize: 13)),
                                       ],
                                     ),
                                   ),
@@ -346,18 +357,19 @@ class _FriendScreenState extends State<FriendScreen> with SingleTickerProviderSt
             ],
           ),
 
-          // 받은 요청 목록
+          // 받은 요청 목록 (이제 notifications 컬렉션에서 가져옴)
           StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance
-                .collection('friend_requests')
+                .collection('notifications')
                 .where('toUid', isEqualTo: _currentUser!.uid)
+                .where('type', isEqualTo: 'friend_request')
                 .snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: AppColors.primary));
               final requests = snapshot.data!.docs;
 
               if (requests.isEmpty) {
-                return EmptyStateWidget(
+                return const EmptyStateWidget(
                   icon: Icons.mail_outline_rounded,
                   title: "받은 친구 요청이 없습니다",
                 );

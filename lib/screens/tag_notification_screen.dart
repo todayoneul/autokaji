@@ -5,11 +5,13 @@ import 'package:intl/intl.dart';
 import 'package:autokaji/theme/app_colors.dart';
 import 'package:autokaji/theme/app_theme.dart';
 import 'package:autokaji/widgets/common_widgets.dart';
+import 'package:autokaji/screens/friend_visit_screen.dart';
 
 class TagNotificationScreen extends StatelessWidget {
   const TagNotificationScreen({super.key});
 
-  Future<void> _acceptTag(DocumentSnapshot doc) async {
+  /// 방문 기록 태그 수락
+  Future<void> _acceptVisitTag(DocumentSnapshot doc) async {
     final data = doc.data() as Map<String, dynamic>;
     final myUid = FirebaseAuth.instance.currentUser!.uid;
 
@@ -28,13 +30,44 @@ class TagNotificationScreen extends StatelessWidget {
       });
 
       await doc.reference.delete();
-
     } catch (e) {
       debugPrint("수락 오류: $e");
     }
   }
 
-  Future<void> _rejectTag(DocumentSnapshot doc) async {
+  /// 친구 요청 수락
+  Future<void> _acceptFriendRequest(DocumentSnapshot doc) async {
+    final data = doc.data() as Map<String, dynamic>;
+    final String fromUid = data['fromUid'];
+    final String fromNickname = data['fromNickname'];
+    final String fromEmail = data['fromEmail'] ?? '';
+    final String toUid = data['toUid'];
+
+    try {
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+
+      // 내 친구 목록에 추가
+      DocumentReference myFriendRef = FirebaseFirestore.instance.collection('users').doc(toUid).collection('friends').doc(fromUid);
+      batch.set(myFriendRef, {'uid': fromUid, 'createdAt': FieldValue.serverTimestamp(), 'initialNickname': fromNickname, 'email': fromEmail});
+
+      // 상대방 친구 목록에 나를 추가하기 위해 내 정보 가져오기
+      final myDoc = await FirebaseFirestore.instance.collection('users').doc(toUid).get();
+      final myNickname = myDoc.data()?['nickname'] ?? '알 수 없음';
+      final myEmail = myDoc.data()?['email'] ?? '';
+
+      DocumentReference otherFriendRef = FirebaseFirestore.instance.collection('users').doc(fromUid).collection('friends').doc(toUid);
+      batch.set(otherFriendRef, {'uid': toUid, 'createdAt': FieldValue.serverTimestamp(), 'initialNickname': myNickname, 'email': myEmail});
+
+      // 알림 삭제
+      batch.delete(doc.reference);
+      await batch.commit();
+    } catch (e) {
+      debugPrint("친구 수락 오류: $e");
+    }
+  }
+
+  /// 알림 삭제 (거절/삭제 공통)
+  Future<void> _deleteNotification(DocumentSnapshot doc) async {
     await doc.reference.delete();
   }
 
@@ -46,11 +79,12 @@ class TagNotificationScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text("태그 알림"),
+        title: const Text("알림", style: TextStyle(fontWeight: FontWeight.bold)),
+        centerTitle: true,
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
-            .collection('tag_requests')
+            .collection('notifications')
             .where('toUid', isEqualTo: user.uid)
             .orderBy('createdAt', descending: true)
             .snapshots(),
@@ -60,96 +94,225 @@ class TagNotificationScreen extends StatelessWidget {
           }
           
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return EmptyStateWidget(
+            return const EmptyStateWidget(
               icon: Icons.notifications_none_rounded,
-              title: "받은 태그 요청이 없습니다",
-              subtitle: "친구가 태그하면 여기에 알림이 와요",
+              title: "새로운 알림이 없습니다",
+              subtitle: "친구가 나를 태그하거나 요청을 보내면 여기에 표시됩니다",
             );
           }
 
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: snapshot.data!.docs.length,
-            separatorBuilder: (ctx, i) => const SizedBox(height: 12),
-            itemBuilder: (context, index) {
-              final doc = snapshot.data!.docs[index];
-              final data = doc.data() as Map<String, dynamic>;
-              final date = (data['visitDate'] as Timestamp).toDate();
+          return _buildNotificationList(snapshot.data!.docs);
+        },
+      ),
+    );
+  }
 
-              return AppCard(
-                padding: const EdgeInsets.all(20),
+  Widget _buildNotificationList(List<QueryDocumentSnapshot> docs) {
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: docs.length,
+      separatorBuilder: (ctx, i) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final doc = docs[index];
+        final data = doc.data() as Map<String, dynamic>;
+        final String type = data['type'] ?? 'visit_tag';
+        final DateTime date = (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+
+        switch (type) {
+          case 'wishlist_tag':
+            return _buildWishlistTagCard(context, doc, data, date);
+          case 'friend_request':
+            return _buildFriendRequestCard(context, doc, data, date);
+          case 'visit_tag':
+          default:
+            return _buildVisitTagCard(context, doc, data, date);
+        }
+      },
+    );
+  }
+
+  /// 친구 요청 카드
+  Widget _buildFriendRequestCard(BuildContext context, DocumentSnapshot doc, Map<String, dynamic> data, DateTime date) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44, height: 44,
+                decoration: const BoxDecoration(color: Color(0xFFE3F2FD), shape: BoxShape.circle),
+                child: const Icon(Icons.person_add_rounded, color: Colors.blue, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 44, height: 44,
-                          decoration: BoxDecoration(
-                            color: AppColors.primarySurface,
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(Icons.local_offer_rounded, color: AppColors.primary, size: 22),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: RichText(
-                            text: TextSpan(
-                              style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, fontFamily: 'Pretendard', height: 1.5),
-                              children: [
-                                TextSpan(text: data['fromNickname'], style: const TextStyle(fontWeight: FontWeight.w800)),
-                                const TextSpan(text: "님이 회원님을\n"),
-                                TextSpan(text: data['storeName'], style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary)),
-                                const TextSpan(text: " 방문 기록에 태그했습니다."),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                    RichText(
+                      text: TextSpan(
+                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontFamily: 'Pretendard'),
+                        children: [
+                          TextSpan(text: data['fromNickname'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                          const TextSpan(text: "님이 "),
+                          const TextSpan(text: "친구 요청", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                          const TextSpan(text: "을 보냈습니다."),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 10),
-                    Padding(
-                      padding: const EdgeInsets.only(left: 58.0),
-                      child: Text(DateFormat('yyyy.MM.dd').format(date), style: const TextStyle(color: AppColors.textTertiary, fontSize: 13)),
-                    ),
-                    const SizedBox(height: 18),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => _rejectTag(doc),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.textSecondary,
-                              side: const BorderSide(color: AppColors.border),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
-                            ),
-                            child: const Text("거절"),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _acceptTag(doc),
-                            icon: const Icon(Icons.check_rounded, size: 20),
-                            label: const Text("수락"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
-                            ),
-                          ),
-                        ),
-                      ],
-                    )
+                    Text(DateFormat('MM.dd HH:mm').format(date), style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
                   ],
                 ),
-              );
-            },
-          );
-        },
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _deleteNotification(doc),
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text("거절"),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => _acceptFriendRequest(doc),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text("수락"),
+                ),
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+
+  /// 찜 목록 태그 카드
+  Widget _buildWishlistTagCard(BuildContext context, DocumentSnapshot doc, Map<String, dynamic> data, DateTime date) {
+    return AppCard(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => FriendVisitScreen(
+              friendUid: data['fromUid'],
+              friendNickname: data['fromNickname'],
+            ),
+          ),
+        );
+      },
+      child: Column(
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Container(
+              width: 44, height: 44,
+              decoration: const BoxDecoration(color: Color(0xFFFFEBEF), shape: BoxShape.circle),
+              child: const Icon(Icons.favorite_rounded, color: Colors.red, size: 22),
+            ),
+            title: RichText(
+              text: TextSpan(
+                style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontFamily: 'Pretendard'),
+                children: [
+                  TextSpan(text: data['fromNickname'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const TextSpan(text: "님이 "),
+                  TextSpan(text: data['storeName'], style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
+                  const TextSpan(text: " 장소를 같이 가고 싶어해요!"),
+                ],
+              ),
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Text(DateFormat('MM.dd HH:mm').format(date), style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.close, size: 18, color: AppColors.textTertiary),
+              onPressed: () => _deleteNotification(doc),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 방문 기록 태그 카드
+  Widget _buildVisitTagCard(BuildContext context, DocumentSnapshot doc, Map<String, dynamic> data, DateTime date) {
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(color: AppColors.primarySurface, shape: BoxShape.circle),
+                child: const Icon(Icons.local_offer_rounded, color: AppColors.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    RichText(
+                      text: TextSpan(
+                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontFamily: 'Pretendard'),
+                        children: [
+                          TextSpan(text: data['fromNickname'], style: const TextStyle(fontWeight: FontWeight.bold)),
+                          const TextSpan(text: "님이 "),
+                          TextSpan(text: data['storeName'], style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
+                          const TextSpan(text: " 방문 기록에 태그했습니다."),
+                        ],
+                      ),
+                    ),
+                    Text(DateFormat('MM.dd HH:mm').format(date), style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _deleteNotification(doc),
+                  style: OutlinedButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text("거절"),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => _acceptVisitTag(doc),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    visualDensity: VisualDensity.compact,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text("수락"),
+                ),
+              ),
+            ],
+          )
+        ],
       ),
     );
   }

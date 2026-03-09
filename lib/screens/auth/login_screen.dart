@@ -60,6 +60,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final docSnapshot = await userRef.get();
     if (!docSnapshot.exists) {
       data['createdAt'] = FieldValue.serverTimestamp();
+      data['nicknameSet'] = false;
       if (data['nickname'] == null) data['nickname'] = '사용자';
     }
     await userRef.set(data, SetOptions(merge: true));

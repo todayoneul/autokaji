@@ -3,13 +3,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:autokaji/screens/main_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -258,31 +256,39 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             final isSelected = _selectedCategory == category;
             return Padding(
               padding: const EdgeInsets.only(right: 8.0),
-              child: FilterChip(
-                label: Text(category),
-                selected: isSelected,
-                onSelected: (selected) {
-                  if (selected) {
-                    setState(() {
-                      _selectedCategory = category;
-                    });
-                    _applyFilter();
-                  }
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _selectedCategory = category;
+                  });
+                  _applyFilter();
                 },
-                backgroundColor: AppColors.surface.withOpacity(0.95),
-                selectedColor: AppColors.primary,
-                labelStyle: TextStyle(
-                  color: isSelected ? Colors.white : AppColors.textPrimary,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  fontSize: 13,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeOutCubic,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    gradient: isSelected ? AppColors.primaryGradient : null,
+                    color: isSelected ? null : AppColors.surface,
+                    borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                    border: Border.all(
+                      color: isSelected ? Colors.transparent : AppColors.border,
+                      width: 1,
+                    ),
+                    boxShadow: isSelected
+                        ? [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 3))]
+                        : AppTheme.shadowSm,
+                  ),
+                  child: Text(
+                    category,
+                    style: TextStyle(
+                      color: isSelected ? Colors.white : AppColors.textPrimary,
+                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                      fontSize: 13,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
                 ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.radiusFull),
-                  side: BorderSide(color: isSelected ? AppColors.primary : AppColors.border),
-                ),
-                checkmarkColor: Colors.white,
-                elevation: 0,
-                pressElevation: 0,
               ),
             );
           }),
@@ -338,27 +344,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _debounce = Timer(const Duration(milliseconds: 500), () { _fetchSuggestions(query); });
   }
 
-  Future<void> _launchGoogleMap(String name) async {
-    final Uri url = Uri(
-      scheme: 'https',
-      host: 'www.google.com',
-      path: '/maps/search/',
-      queryParameters: {
-        'api': '1',
-        'query': name,
-      },
-    );
 
-    try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("구글 지도를 열 수 없습니다.")));
-      }
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("구글 지도 실행 오류: $e")));
-    }
-  }
 
   Future<void> _getPlaceDetails(String placeId, String description) async {
     setState(() {
@@ -426,27 +412,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  Future<void> _launchNaverMap(double lat, double lng, String name) async {
-    final Uri url = Uri(
-      scheme: 'nmap',
-      host: 'route',
-      path: '/public',
-      queryParameters: {
-        'dlat': '$lat',
-        'dlng': '$lng',
-        'dname': name,
-        'appname': 'com.gyuhan.autokaji',
-      },
-    );
-    
-    try {
-      if (await canLaunchUrl(url)) { await launchUrl(url); }
-      else {
-        if (Platform.isIOS) await launchUrl(Uri.parse('https://apps.apple.com/kr/app/naver-map-navigation/id311867728'));
-        else await launchUrl(Uri.parse('market://details?id=com.nhn.android.nmap'));
-      }
-    } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("네이버 지도 실행 오류: $e"))); }
-  }
 
   void _showSaveDialog(Map<String, dynamic> placeData, double lat, double lng) {
     final String name = placeData['name'];
@@ -557,29 +522,29 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                               children: [
                                 Expanded(
                                   child: ElevatedButton.icon(
-                                    onPressed: () => _launchNaverMap(lat, lng, name), 
+                                    onPressed: () => _launchNaverWalk(lat, lng, name), 
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppColors.naver, 
                                       foregroundColor: Colors.white, 
                                       padding: const EdgeInsets.symmetric(vertical: 14),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
                                     ), 
-                                    icon: const Icon(Icons.map_outlined, size: 20), 
-                                    label: const Text("네이버 지도", style: TextStyle(fontWeight: FontWeight.w700)),
+                                    icon: const Icon(Icons.directions_walk_rounded, size: 20), 
+                                    label: const Text("네이버 도보", style: TextStyle(fontWeight: FontWeight.w700)),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _launchGoogleMap(name), 
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: AppColors.textPrimary, 
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _launchNaverTransit(lat, lng, name), 
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: AppColors.secondary, 
+                                      foregroundColor: Colors.white, 
                                       padding: const EdgeInsets.symmetric(vertical: 14),
-                                      side: const BorderSide(color: AppColors.border),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusMd)),
                                     ), 
-                                    icon: Icon(Icons.map_rounded, color: AppColors.google, size: 20), 
-                                    label: const Text("구글 지도", style: TextStyle(fontWeight: FontWeight.w700)),
+                                    icon: const Icon(Icons.directions_bus_rounded, size: 20), 
+                                    label: const Text("대중교통", style: TextStyle(fontWeight: FontWeight.w700)),
                                   ),
                                 ),
                               ],
@@ -886,8 +851,77 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
             ),
           ),
+
         ],
       ),
     );
+  }
+
+  Future<void> _launchNaverWalk(double lat, double lng, String name) async {
+    final locationAsync = ref.read(locationProvider);
+    if (!locationAsync.hasValue || locationAsync.value == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('현재 위치를 가져올 수 없습니다.')));
+      return;
+    }
+
+    final Uri url = Uri(
+      scheme: 'nmap',
+      host: 'route',
+      path: '/walk',
+      queryParameters: {
+        'slat': '${locationAsync.value!.latitude}',
+        'slng': '${locationAsync.value!.longitude}',
+        'sname': '현재 위치',
+        'dlat': '$lat',
+        'dlng': '$lng',
+        'dname': name,
+        'appname': 'com.gyuhan.autokaji',
+      },
+    );
+
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url);
+      } else {
+        if (Platform.isIOS) await launchUrl(Uri.parse('https://apps.apple.com/kr/app/naver-map-navigation/id311867728'));
+        else await launchUrl(Uri.parse('market://details?id=com.nhn.android.nmap'));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('네이버 지도 실행 오류: $e')));
+    }
+  }
+
+  Future<void> _launchNaverTransit(double lat, double lng, String name) async {
+    final locationAsync = ref.read(locationProvider);
+    if (!locationAsync.hasValue || locationAsync.value == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('현재 위치를 가져올 수 없습니다.')));
+      return;
+    }
+
+    final Uri url = Uri(
+      scheme: 'nmap',
+      host: 'route',
+      path: '/public',
+      queryParameters: {
+        'slat': '${locationAsync.value!.latitude}',
+        'slng': '${locationAsync.value!.longitude}',
+        'sname': '현재 위치',
+        'dlat': '$lat',
+        'dlng': '$lng',
+        'dname': name,
+        'appname': 'com.gyuhan.autokaji',
+      },
+    );
+
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url);
+      } else {
+        if (Platform.isIOS) await launchUrl(Uri.parse('https://apps.apple.com/kr/app/naver-map-navigation/id311867728'));
+        else await launchUrl(Uri.parse('market://details?id=com.nhn.android.nmap'));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('네이버 지도 실행 오류: $e')));
+    }
   }
 }

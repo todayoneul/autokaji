@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart' as google_pkg;
 import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart' as kakao;
 import 'package:autokaji/screens/auth/auth_gate.dart';
+import 'package:autokaji/screens/wishlist_screen.dart';
 import 'package:autokaji/theme/app_colors.dart';
 import 'package:autokaji/theme/app_theme.dart';
 
@@ -285,6 +286,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           
           const SizedBox(height: 30),
+
+          if (!_isGuest) 
+            _buildMenuTile(
+              icon: Icons.favorite_rounded,
+              text: "나의 찜 목록",
+              color: AppColors.primary,
+              iconBg: AppColors.primarySurface,
+              onTap: () {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const WishlistScreen()));
+              },
+            ),
           
           if (_isGuest)
              _buildMenuTile(

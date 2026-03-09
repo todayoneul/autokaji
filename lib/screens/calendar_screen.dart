@@ -34,8 +34,12 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   List<QueryDocumentSnapshot> _searchResults = []; 
   List<QueryDocumentSnapshot> _allDataCache = [];  
 
-  // [신규] 리스트 필터 상태 ('All', 'Solo', 'Friends')
-  Set<String> _historyFilter = {'All'};
+  // 리스트 필터 상태
+  String _statsFilter = 'All'; // 'All', 'Solo', 'Friends'
+  String? _selectedFriend; // 친구별 필터
+
+  // DraggableSheet 컨트롤러
+  final DraggableScrollableController _sheetController = DraggableScrollableController();
 
   final List<String> _emptyMessages = [
     "이번 달은 다이어트 중이신가요? 🥗",
@@ -55,26 +59,22 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _sheetController.dispose();
     super.dispose();
   }
 
   void _runSearch(String query) {
     if (query.isEmpty) {
-      setState(() {
-        _searchResults = [];
-      });
+      setState(() { _searchResults = []; });
       return;
     }
-
     final lowercaseQuery = query.toLowerCase();
-    
     setState(() {
       _searchResults = _allDataCache.where((doc) {
         final data = doc.data() as Map<String, dynamic>;
         final storeName = (data['storeName'] ?? '').toString().toLowerCase();
         final memo = (data['memo'] ?? '').toString().toLowerCase();
         final foodType = (data['foodType'] ?? '').toString().toLowerCase();
-        
         return storeName.contains(lowercaseQuery) || 
                memo.contains(lowercaseQuery) ||
                foodType.contains(lowercaseQuery);
@@ -113,16 +113,13 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     try {
       final XFile? image = await _picker.pickImage(source: source, imageQuality: 70, maxWidth: 1024);
       if (image == null) return;
-
       setSheetState(() {}); 
-
       final user = FirebaseAuth.instance.currentUser;
       final storageRef = FirebaseStorage.instance
           .ref()
           .child('user_images')
           .child(user!.uid)
           .child('${DateTime.now().millisecondsSinceEpoch}.jpg');
-
       await storageRef.putFile(File(image.path));
       final String downloadUrl = await storageRef.getDownloadURL();
       onUrlReady(downloadUrl);
@@ -360,12 +357,43 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 
-  Widget _buildStatisticsCard(List<QueryDocumentSnapshot> allVisits) {
-    if (allVisits.isEmpty) return const SizedBox();
+  // ─── 통계 카드 (필터 포함) ───
+
+  List<QueryDocumentSnapshot> _filterVisits(List<QueryDocumentSnapshot> visits) {
+    return visits.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final List<dynamic> friends = data['taggedFriends'] ?? [];
+      
+      if (_statsFilter == 'All') return true;
+      if (_statsFilter == 'Solo') return friends.isEmpty;
+      if (_statsFilter == 'Friends') {
+        if (_selectedFriend != null) {
+          return friends.contains(_selectedFriend);
+        }
+        return friends.isNotEmpty;
+      }
+      return true;
+    }).toList();
+  }
+
+  // 모든 친구 목록 추출
+  List<String> _getAllFriends(List<QueryDocumentSnapshot> allVisits) {
+    final Set<String> friends = {};
+    for (var doc in allVisits) {
+      final data = doc.data() as Map<String, dynamic>;
+      final List<dynamic> taggedFriends = data['taggedFriends'] ?? [];
+      for (var f in taggedFriends) {
+        friends.add(f.toString());
+      }
+    }
+    return friends.toList()..sort();
+  }
+
+  Map<String, dynamic> _computeStats(List<QueryDocumentSnapshot> visits) {
     final Map<String, int> foodCounts = {};
     double totalRating = 0;
     int ratingCount = 0;
-    for (var doc in allVisits) {
+    for (var doc in visits) {
       final data = doc.data() as Map<String, dynamic>;
       final String type = data['foodType'] ?? '기타';
       foodCounts[type] = (foodCounts[type] ?? 0) + 1;
@@ -376,22 +404,141 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     int maxCount = 0;
     foodCounts.forEach((key, value) { if (value > maxCount) { maxCount = value; topFood = key; } });
     String avgRating = ratingCount > 0 ? (totalRating / ratingCount).toStringAsFixed(1) : '0.0';
-    return Container(
-      margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: AppColors.secondaryGradient,
-        borderRadius: BorderRadius.circular(AppTheme.radiusXl), 
-        boxShadow: AppTheme.shadowLg,
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _statItem(Icons.emoji_events_rounded, "최애 음식", topFood, AppColors.accent),
-          Container(width: 1, height: 40, color: Colors.white24),
-          _statItem(Icons.star_rounded, "평균 별점", avgRating, AppColors.accentLight),
-          Container(width: 1, height: 40, color: Colors.white24),
-          _statItem(Icons.restaurant_menu_rounded, "누적 방문", "${allVisits.length}회", Colors.white),
-        ],
+    return {'topFood': topFood, 'avgRating': avgRating, 'count': visits.length};
+  }
+
+  Widget _buildStatisticsCard(List<QueryDocumentSnapshot> allVisits) {
+    if (allVisits.isEmpty) return const SizedBox();
+    
+    final filtered = _filterVisits(allVisits);
+    final stats = _computeStats(filtered);
+    final allFriends = _getAllFriends(allVisits);
+
+    return Column(
+      children: [
+        // 필터 탭
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              _filterTab('전체', 'All'),
+              const SizedBox(width: 8),
+              _filterTab('혼자', 'Solo'),
+              const SizedBox(width: 8),
+              _filterTab('친구랑', 'Friends'),
+            ],
+          ),
+        ),
+        
+        // 친구 선택 칩 (친구 필터 활성화 시)
+        if (_statsFilter == 'Friends' && allFriends.isNotEmpty)
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedFriend = null),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        gradient: _selectedFriend == null ? AppColors.primaryGradient : null,
+                        color: _selectedFriend == null ? null : AppColors.surfaceVariant,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                      ),
+                      child: Text(
+                        '전체 친구',
+                        style: TextStyle(
+                          color: _selectedFriend == null ? Colors.white : AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                ...allFriends.map((friend) => Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: GestureDetector(
+                    onTap: () => setState(() => _selectedFriend = friend),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        gradient: _selectedFriend == friend ? AppColors.primaryGradient : null,
+                        color: _selectedFriend == friend ? null : AppColors.surfaceVariant,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+                      ),
+                      child: Text(
+                        friend,
+                        style: TextStyle(
+                          color: _selectedFriend == friend ? Colors.white : AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ),
+                )),
+              ],
+            ),
+          ),
+
+        // 통계 카드
+        Container(
+          margin: const EdgeInsets.all(16), padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: AppColors.secondaryGradient,
+            borderRadius: BorderRadius.circular(AppTheme.radiusXl), 
+            boxShadow: AppTheme.shadowLg,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _statItem(Icons.emoji_events_rounded, "최애 음식", stats['topFood'], AppColors.accent),
+              Container(width: 1, height: 40, color: Colors.white24),
+              _statItem(Icons.star_rounded, "평균 별점", stats['avgRating'], AppColors.accentLight),
+              Container(width: 1, height: 40, color: Colors.white24),
+              _statItem(Icons.restaurant_menu_rounded, "누적 방문", "${stats['count']}회", Colors.white),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _filterTab(String label, String value) {
+    final bool isActive = _statsFilter == value;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _statsFilter = value;
+          if (value != 'Friends') _selectedFriend = null;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: isActive ? AppColors.primaryGradient : null,
+          color: isActive ? null : AppColors.surfaceVariant,
+          borderRadius: BorderRadius.circular(AppTheme.radiusFull),
+          boxShadow: isActive
+              ? [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3))]
+              : null,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isActive ? Colors.white : AppColors.textSecondary,
+            fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+            fontSize: 13,
+          ),
+        ),
       ),
     );
   }
@@ -422,7 +569,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
-          // 이미지/아이콘 영역
           ClipRRect(
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
             child: imageUrl != null 
@@ -430,7 +576,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 : _buildPlaceholderIcon(),
           ),
           const SizedBox(width: 14),
-          // 정보 영역
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -494,46 +639,27 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 
-  // [수정됨] 리스트 모드 화면 (필터 추가)
+  // 리스트 모드 (필터 포함)
   Widget _buildAllHistoryList(List<QueryDocumentSnapshot> allVisits) {
-    // 1. 필터링 로직
-    final filteredVisits = allVisits.where((doc) {
-      final data = doc.data() as Map<String, dynamic>;
-      final List<dynamic> friends = data['taggedFriends'] ?? [];
-      
-      if (_historyFilter.contains('All')) return true;
-      if (_historyFilter.contains('Solo')) return friends.isEmpty;
-      if (_historyFilter.contains('Friends')) return friends.isNotEmpty;
-      return true;
-    }).toList();
+    final filteredVisits = _filterVisits(allVisits);
 
     return Column(
       children: [
         _buildStatisticsCard(allVisits),
         
-        // [신규] 필터 버튼 영역
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: Row(
             children: [
-              const Text("전체 기록", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, letterSpacing: -0.3)),
-              const Spacer(),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'All', label: Text('전체')),
-                  ButtonSegment(value: 'Solo', label: Text('혼자')),
-                  ButtonSegment(value: 'Friends', label: Text('친구랑')),
-                ],
-                selected: _historyFilter,
-                onSelectionChanged: (Set<String> newSelection) {
-                  setState(() {
-                    _historyFilter = newSelection;
-                  });
-                },
-                style: ButtonStyle(
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity: VisualDensity.compact,
-                ),
+              Text(
+                _statsFilter == 'All' ? '전체 기록' : _statsFilter == 'Solo' ? '혼자 방문' : _selectedFriend != null ? '$_selectedFriend님과' : '친구와 방문',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, letterSpacing: -0.3),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppTheme.radiusFull)),
+                child: Text('${filteredVisits.length}건', style: const TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w700)),
               ),
             ],
           ),
@@ -554,6 +680,187 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 ),
         ),
       ],
+    );
+  }
+
+  // ─── 캘린더 모드 ───
+
+  Widget _buildCalendarView(List<QueryDocumentSnapshot> allVisits) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return Stack(
+          children: [
+            // 캘린더 (상단 고정)
+            Column(
+              children: [
+                TableCalendar(
+                  locale: 'ko_KR',
+                  firstDay: DateTime.utc(2000, 1, 1),
+                  lastDay: DateTime.utc(2099, 12, 31),
+                  focusedDay: _focusedDay,
+                  calendarFormat: _calendarFormat,
+                  availableCalendarFormats: const {
+                    CalendarFormat.month: '월',
+                  },
+                  eventLoader: (day) => _getEventsForDay(day, allVisits),
+                  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+                  onDaySelected: (selectedDay, focusedDay) {
+                    setState(() { 
+                      _selectedDay = selectedDay; 
+                      _focusedDay = focusedDay; 
+                    });
+                    // 선택한 날짜에 기록이 있으면 시트를 중간으로
+                    final dayVisits = _getEventsForDay(selectedDay, allVisits);
+                    if (dayVisits.isNotEmpty) {
+                      _sheetController.animateTo(0.45, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+                    }
+                  },
+                  onFormatChanged: (format) { if (_calendarFormat != format) setState(() => _calendarFormat = format); },
+                  onPageChanged: (focusedDay) { setState(() { _focusedDay = focusedDay; }); },
+                  onHeaderTapped: (_) => _selectYearMonth(context),
+                  rowHeight: 52,
+                  daysOfWeekHeight: 32,
+                  headerStyle: const HeaderStyle(
+                    titleCentered: true, 
+                    formatButtonVisible: false, 
+                    titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3), 
+                    rightChevronIcon: Icon(Icons.chevron_right_rounded, color: AppColors.textPrimary), 
+                    leftChevronIcon: Icon(Icons.chevron_left_rounded, color: AppColors.textPrimary),
+                    headerPadding: EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  calendarStyle: CalendarStyle(
+                    cellMargin: const EdgeInsets.all(4),
+                    todayDecoration: BoxDecoration(color: AppColors.primary.withOpacity(0.3), shape: BoxShape.circle), 
+                    selectedDecoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle), 
+                    markerDecoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                    markerSize: 6,
+                    markersMaxCount: 3,
+                    todayTextStyle: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700),
+                    selectedTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                    defaultTextStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                    weekendTextStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.error),
+                  ),
+                  daysOfWeekStyle: const DaysOfWeekStyle(
+                    weekdayStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textSecondary),
+                    weekendStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.error),
+                  ),
+                ),
+              ],
+            ),
+
+            // DraggableScrollableSheet (기본: 중간)
+            DraggableScrollableSheet(
+              controller: _sheetController,
+              initialChildSize: 0.45,
+              minChildSize: 0.06,
+              maxChildSize: 0.85,
+              snap: true,
+              snapSizes: const [0.06, 0.45, 0.85],
+              builder: (context, scrollController) {
+                // 선택한 날짜 방문 기록
+                final dayVisits = _selectedDay != null
+                    ? _getEventsForDay(_selectedDay!, allVisits)
+                    : <QueryDocumentSnapshot>[];
+                // 해당 월 방문 기록
+                final monthVisits = _getEventsForMonth(_focusedDay, allVisits);
+
+                return Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20, offset: const Offset(0, -4)),
+                    ],
+                  ),
+                  child: ListView(
+                    controller: scrollController,
+                    padding: EdgeInsets.zero,
+                    children: [
+                      // 드래그 핸들
+                      Center(
+                        child: Container(
+                          margin: const EdgeInsets.only(top: 12, bottom: 8),
+                          width: 40, height: 4,
+                          decoration: BoxDecoration(
+                            color: AppColors.border,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+
+                      // 선택한 날짜가 있고 방문 기록이 있으면 해당 날짜 표시
+                      if (dayVisits.isNotEmpty) ...[
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.calendar_today_rounded, size: 18, color: AppColors.primary),
+                              const SizedBox(width: 8),
+                              Text(
+                                DateFormat('M월 d일', 'ko_KR').format(_selectedDay!),
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.3),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppTheme.radiusFull)),
+                                child: Text('${dayVisits.length}곳', style: const TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w700)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        ...dayVisits.map((doc) => Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+                          child: _buildListItem(doc),
+                        )),
+                        const Divider(height: 24, indent: 16, endIndent: 16, color: AppColors.divider),
+                      ],
+
+                      // "YYYY년 M월의 맛집들" — 원래 스타일
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Row(
+                          children: [
+                            Text(DateFormat('yyyy년 M월', 'ko_KR').format(_focusedDay), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+                            const Text('의 맛집들', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3), 
+                              decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppTheme.radiusFull)), 
+                              child: Text('${monthVisits.length}곳', style: const TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w700)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (monthVisits.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(40),
+                          child: Column(
+                            children: [
+                              Icon(Icons.no_meals_rounded, size: 48, color: AppColors.textTertiary.withOpacity(0.4)),
+                              const SizedBox(height: 12),
+                              Text(
+                                _getEmptyMessage(),
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: AppColors.textTertiary, fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        )
+                      else
+                        ...monthVisits.map((doc) => Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+                          child: _buildListItem(doc),
+                        )),
+                      const SizedBox(height: 100),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -653,70 +960,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
           if (_isListView) {
             return _buildAllHistoryList(allVisits);
           } else {
-            final monthVisits = _getEventsForMonth(_focusedDay, allVisits);
-            return Column(
-              children: [
-                TableCalendar(
-                  locale: 'ko_KR',
-                  firstDay: DateTime.utc(2000, 1, 1),
-                  lastDay: DateTime.utc(2099, 12, 31),
-                  focusedDay: _focusedDay,
-                  calendarFormat: _calendarFormat,
-                  eventLoader: (day) => _getEventsForDay(day, allVisits),
-                  selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-                  onDaySelected: (selectedDay, focusedDay) {
-                    setState(() { _selectedDay = selectedDay; _focusedDay = focusedDay; });
-                  },
-                  onFormatChanged: (format) { if (_calendarFormat != format) setState(() => _calendarFormat = format); },
-                  onPageChanged: (focusedDay) { setState(() { _focusedDay = focusedDay; }); },
-                  onHeaderTapped: (_) => _selectYearMonth(context),
-                  headerStyle: const HeaderStyle(
-                    titleCentered: true, 
-                    formatButtonVisible: false, 
-                    titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3), 
-                    rightChevronIcon: Icon(Icons.chevron_right_rounded, color: AppColors.textPrimary), 
-                    leftChevronIcon: Icon(Icons.chevron_left_rounded, color: AppColors.textPrimary),
-                  ),
-                  calendarStyle: CalendarStyle(
-                    todayDecoration: BoxDecoration(color: AppColors.primary.withOpacity(0.3), shape: BoxShape.circle), 
-                    selectedDecoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle), 
-                    markerDecoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                    markerSize: 6,
-                    todayTextStyle: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700),
-                    selectedTextStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
-                  ),
-                ),
-                Container(height: 1, color: AppColors.divider),
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Row(
-                    children: [
-                      Text(DateFormat('yyyy년 M월', 'ko_KR').format(_focusedDay), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
-                      const Text('의 맛집들', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w400)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3), 
-                        decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppTheme.radiusFull)), 
-                        child: Text('${monthVisits.length}곳', style: const TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w700)),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: monthVisits.isEmpty
-                      ? EmptyStateWidget(
-                          icon: Icons.no_meals_rounded,
-                          title: _getEmptyMessage(),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
-                          itemCount: monthVisits.length,
-                          separatorBuilder: (context, index) => const SizedBox(height: 10),
-                          itemBuilder: (context, index) => _buildListItem(monthVisits[index]),
-                        ),
-                ),
-              ],
-            );
+            return _buildCalendarView(allVisits);
           }
         },
         loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
