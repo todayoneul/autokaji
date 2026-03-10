@@ -99,15 +99,30 @@ class _CoursePlannerScreenState extends State<CoursePlannerScreen> {
           // 동적 단계 생성
           ...List.generate(course.steps.length, (i) {
             final place = course.steps[i];
-            // 아이콘 및 색상 결정
+            final category = place.category.toLowerCase();
+            
+            // 아이콘 및 색상 결정 로직 강화
             IconData icon = Icons.restaurant_rounded;
             Color color = Colors.orange;
-            if (place.category.contains('카페') || place.category.contains('커피') || place.category.contains('디저트')) {
+
+            if (category.contains('카페') || category.contains('커피') || 
+                category.contains('디저트') || category.contains('빵') || 
+                category.contains('베이커리') || category.contains('cafe') || 
+                category.contains('bakery')) {
               icon = Icons.local_cafe_rounded;
-              color = Colors.brown;
-            } else if (place.category.contains('영화') || place.category.contains('놀거리') || place.category.contains('문화')) {
+              color = const Color(0xFF8D6E63); // 부드러운 브라운
+            } else if (category.contains('영화') || category.contains('놀거리') || 
+                       category.contains('문화') || category.contains('테마파크') || 
+                       category.contains('amusement') || category.contains('entertainment') ||
+                       category.contains('game') || category.contains('karaoke')) {
               icon = Icons.local_activity_rounded;
-              color = Colors.blue;
+              color = Colors.blueAccent;
+            } else if (category.contains('공원') || category.contains('park') || category.contains('산책')) {
+              icon = Icons.park_rounded;
+              color = Colors.green;
+            } else if (category.contains('쇼핑') || category.contains('store') || category.contains('shopping')) {
+              icon = Icons.shopping_bag_rounded;
+              color = Colors.pinkAccent;
             }
 
             return Column(
@@ -179,11 +194,13 @@ class _CoursePlannerScreenState extends State<CoursePlannerScreen> {
                   const SizedBox(height: 4),
                   Row(
                     children: [
-                      const Icon(Icons.star_rounded, color: Colors.amber, size: 14),
-                      const SizedBox(width: 4),
-                      Text(place.rating.toStringAsFixed(1), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                      Text(' (${place.reviewCount})', style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
-                      const SizedBox(width: 8),
+                      if (place.source == 'google' && place.rating > 0) ...[
+                        const Icon(Icons.star_rounded, color: Colors.amber, size: 14),
+                        const SizedBox(width: 4),
+                        Text(place.rating.toStringAsFixed(1), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        Text(' (${place.reviewCount})', style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+                        const SizedBox(width: 8),
+                      ],
                       Text(place.category, style: const TextStyle(fontSize: 11, color: AppColors.primary)),
                     ],
                   ),
