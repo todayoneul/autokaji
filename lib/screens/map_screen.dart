@@ -48,6 +48,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _isFoodMode = true; 
   bool _showCategoryChips = true; 
   bool _areMarkersVisible = true; 
+  bool _showFilters = false; // 필터 UI 표시 여부
 
   final List<String> _foodCategories = ['전체', '한식', '중식', '일식', '양식', '디저트', '기타'];
   final List<String> _playCategories = ['전체', '실내', '실외', '테마파크', '영화/공연', '쇼핑', '기타'];
@@ -103,10 +104,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// 줌 레벨에 따라 동적으로 마커 크기 계산 (더 작게 조정)
   int _getDynamicMarkerSize() {
-    if (_currentZoom >= 16) return 55;
-    if (_currentZoom >= 14) return 45;
-    if (_currentZoom >= 12) return 35;
-    return 28; 
+    if (_currentZoom >= 16) return 40; // 45 -> 40
+    if (_currentZoom >= 14) return 34; // 38 -> 34
+    if (_currentZoom >= 12) return 28; // 30 -> 28
+    return 22; // 24 -> 22
   }
 
   Future<BitmapDescriptor> _createEmojiMarkerBitmap(String category, {bool isFriend = false}) async {
@@ -126,29 +127,47 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
 
     final int size = _getDynamicMarkerSize();
-    final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
-    final ui.Canvas canvas = ui.Canvas(pictureRecorder);
-    final ui.Paint paint = ui.Paint()..color = Colors.white;
     final double radius = size / 2.0;
 
-    // 배경 그림자 (작을 땐 매우 연하게)
-    if (size > 30) {
-      canvas.drawCircle(Offset(radius, radius), radius, ui.Paint()..color = Colors.black.withOpacity(0.08)..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 1.5));
+    final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+    final ui.Canvas canvas = ui.Canvas(pictureRecorder);
+    
+    // 배경 그림자
+    if (size > 25) {
+      canvas.drawCircle(
+        Offset(radius, radius + 1), 
+        radius - 1, 
+        ui.Paint()
+          ..color = Colors.black.withOpacity(0.12)
+          ..maskFilter = const ui.MaskFilter.blur(ui.BlurStyle.normal, 1.5)
+      );
     }
     
-    canvas.drawCircle(Offset(radius, radius), radius - 1.5, paint);
+    // 배경 흰색 원
+    canvas.drawCircle(Offset(radius, radius), radius - 1, ui.Paint()..color = Colors.white);
 
-    // 테두리 색상 및 두께 조정
+    // 테두리
     final ui.Paint borderPaint = ui.Paint()
       ..color = isFriend ? const Color(0xFF9C27B0) : const Color(0xFFFF5252)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = size > 40 ? 2.5 : 1.5;
-    canvas.drawCircle(Offset(radius, radius), radius - 2.5, borderPaint);
+      ..strokeWidth = size > 35 ? 2.0 : 1.5;
+    canvas.drawCircle(Offset(radius, radius), radius - 1.5, borderPaint);
 
+    // 이모지 텍스트 페인터
     TextPainter painter = TextPainter(textDirection: ui.TextDirection.ltr);
-    painter.text = TextSpan(text: emoji, style: TextStyle(fontSize: size * 0.52));
+    painter.text = TextSpan(
+      text: emoji, 
+      style: TextStyle(
+        fontSize: size * 0.55, 
+        height: 1.0,
+      )
+    );
     painter.layout();
-    painter.paint(canvas, Offset(radius - painter.width / 2, radius - painter.height / 2));
+
+    // 중앙 정렬 계산 (이모지 특성상 미세하게 위로 조정)
+    final double xOffset = radius - (painter.width / 2);
+    final double yOffset = radius - (painter.height / 2);
+    painter.paint(canvas, Offset(xOffset, yOffset));
 
     final img = await pictureRecorder.endRecording().toImage(size, size);
     final data = await img.toByteData(format: ui.ImageByteFormat.png);
@@ -946,6 +965,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           ),
                         ),
                         Container(
+                          margin: const EdgeInsets.only(right: 4),
+                          child: IconButton(
+                            icon: Icon(
+                              _showFilters ? Icons.tune_rounded : Icons.filter_list_rounded, 
+                              color: _showFilters ? AppColors.primary : AppColors.textSecondary,
+                              size: 22,
+                            ),
+                            onPressed: () {
+                              setState(() { _showFilters = !_showFilters; });
+                            },
+                          ),
+                        ),
+                        Container(
                           margin: const EdgeInsets.only(right: 8),
                           decoration: BoxDecoration(
                             color: _areMarkersVisible ? AppColors.primarySurface : AppColors.surfaceVariant,
@@ -964,10 +996,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ),
                   ),
 
-                  _buildDisplayModeToggle(),
-
-                  const SizedBox(height: 4),
-                  _showCategoryChips ? _buildCategoryChips() : _buildModeSelectButtons(),
+                  if (_showFilters) ...[
+                    _buildDisplayModeToggle(),
+                    const SizedBox(height: 4),
+                    _showCategoryChips ? _buildCategoryChips() : _buildModeSelectButtons(),
+                  ],
 
                   if (_placePredictions.isNotEmpty)
                     Container(

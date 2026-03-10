@@ -39,11 +39,38 @@ class PlaceResult {
     this.tags = const [],
   });
 
-  double get score {
-    double base = rating * _log10(reviewCount + 1);
-    if (source == 'naver') base += 0.5;
-    if (source == 'kakao') base += 0.3;
-    return base;
+  double getScore(double userLat, double userLng) {
+    // 1. 평점 점수 (0~5점)
+    double ratingScore = rating;
+
+    // 2. 리뷰 수 점수 (로그 스케일 적용, 0~5점 사이로 정규화 시도)
+    // 리뷰 10개면 약 1.0, 100개면 약 2.0, 1000개면 약 3.0
+    double reviewScore = _log10(reviewCount + 1);
+
+    // 3. 거리 점수 (가까울수록 높음)
+    double distanceScore = 0;
+    try {
+      double distanceInMeters = Geolocator.distanceBetween(userLat, userLng, lat, lng);
+      // 500m 이내면 5점, 1km 이내면 3점, 2km 이상이면 0점 등으로 가중치 부여
+      if (distanceInMeters < 500) {
+        distanceScore = 5.0;
+      } else if (distanceInMeters < 1500) {
+        distanceScore = 3.0;
+      } else if (distanceInMeters < 3000) {
+        distanceScore = 1.0;
+      }
+    } catch (e) {
+      distanceScore = 0;
+    }
+
+    // 최종 스코어 = (평점 * 0.4) + (리뷰 * 0.3) + (거리 * 0.3)
+    double finalScore = (ratingScore * 0.4) + (reviewScore * 0.3) + (distanceScore * 0.3);
+
+    // 소스별 추가 가산점 (네이버/카카오는 한국 로컬 데이터가 강하므로 약간의 보정)
+    if (source == 'naver') finalScore += 0.5;
+    if (source == 'kakao') finalScore += 0.3;
+
+    return finalScore;
   }
 
   static double _log10(num x) {
@@ -140,12 +167,16 @@ class PlaceSearchService {
     if (_googleApiKey.isEmpty) return [];
     try {
       debugPrint("[Xcode 로그] 구글 검색 요청: $type (키워드: $keyword, 반경: $radius)");
+      // rankby=prominence는 radius와 함께 사용될 때 기본값이지만 명시적으로 고려 (radius 필수)
       String url = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=$lat,$lng&radius=$radius&type=$type&language=ko&key=$_googleApiKey';
       if (keyword.isNotEmpty) url += '&keyword=${Uri.encodeComponent(keyword)}';
+      
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        if (data['status'] == 'OK') {
+        final String status = data['status'] ?? 'UNKNOWN';
+        
+        if (status == 'OK') {
           final results = data['results'] as List;
           debugPrint("[Xcode 로그] 구글 검색 결과: ${results.length}개 발견");
           return results.map((place) {
@@ -156,7 +187,14 @@ class PlaceSearchService {
             }
             return PlaceResult(name: place['name'] ?? '', address: place['vicinity'] ?? '', lat: (geo['lat'] as num).toDouble(), lng: (geo['lng'] as num).toDouble(), rating: (place['rating'] ?? 0).toDouble(), reviewCount: place['user_ratings_total'] ?? 0, category: (place['types'] as List).isNotEmpty ? place['types'][0] : '기타', source: 'google', photoUrl: photoUrl, placeId: place['place_id'], rawData: Map<String, dynamic>.from(place));
           }).toList();
+        } else {
+          debugPrint("[Xcode 로그] 구글 검색 실패 상태: $status");
+          if (data['error_message'] != null) {
+            debugPrint("[Xcode 로그] 구글 에러 메시지: ${data['error_message']}");
+          }
         }
+      } else {
+        debugPrint("[Xcode 로그] 구글 HTTP 에러: ${response.statusCode}");
       }
     } catch (e) {
       debugPrint("[Xcode 로그] 구글 에러: $e");
@@ -190,7 +228,7 @@ class PlaceSearchService {
       }
       
       return p.source == 'naver' || p.source == 'kakao' || p.rating >= minRating;
-    }).toList()..sort((a, b) => b.score.compareTo(a.score));
+    }).toList()..sort((a, b) => b.getScore(lat, lng).compareTo(a.getScore(lat, lng)));
   }
 
   /// ─── [고도화] 정밀 타격 하이브리드 검색 (역 2개 + 아시안 보강 + 로그 전면 복구) ───
@@ -266,8 +304,27 @@ class PlaceSearchService {
 
     final List<Future<List<PlaceResult>>> naverFutures = finalQueries.map((q) => searchNaver(query: q, display: 5)).toList();
     
-    final List<PlaceResult> googleBase = await searchGoogle(lat: lat, lng: lng, radius: radius, type: isFoodMode ? 'restaurant' : 'point_of_interest');
-    final List<PlaceResult> kakaoBase = await searchKakao(query: isFoodMode ? '맛집' : '핫플', lat: lat, lng: lng, radius: radius, size: 20);
+    // 구글/카카오용 검색 키워드 생성 (필터 적용)
+    String searchKeyword = isFoodMode ? "맛집" : "핫플";
+    if (selectedCats.isNotEmpty) {
+      searchKeyword = selectedCats.join(" ");
+      if (selectedSubCats.isNotEmpty) {
+        searchKeyword += " ${selectedSubCats.join(" ")}";
+      }
+    }
+
+    // 구글/카카오는 반경이 너무 작으면 결과가 0개일 확률이 매우 높으므로 최소 1000m 권장
+    final int safeRadius = radius < 1000 ? 1000 : radius;
+
+    final List<PlaceResult> googleBase = await searchGoogle(
+      lat: lat, lng: lng, radius: safeRadius, 
+      type: isFoodMode ? 'restaurant' : 'point_of_interest',
+      keyword: searchKeyword, // 키워드 필터 적용
+    );
+    final List<PlaceResult> kakaoBase = await searchKakao(
+      query: searchKeyword, // 키워드 필터 적용
+      lat: lat, lng: lng, radius: safeRadius, size: 20
+    );
     
     final List<List<PlaceResult>> naverResultsList = await Future.wait(naverFutures);
     final List<PlaceResult> allNaverResults = naverResultsList.expand((x) => x).toList();
@@ -307,7 +364,7 @@ class PlaceSearchService {
     }).toList();
 
     debugPrint("[Xcode 로그] 필터링 후 최종 핫플 개수: ${filtered.length}개");
-    return filtered;
+    return filtered..sort((a, b) => b.getScore(lat, lng).compareTo(a.getScore(lat, lng)));
   }
 
   static List<PlaceResult> _mergeAndDeduplicate(List<PlaceResult> google, List<PlaceResult> kakao, List<PlaceResult> naver) {
