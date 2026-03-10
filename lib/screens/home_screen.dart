@@ -578,63 +578,93 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           _buildAppBarAction(Icons.people, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FriendScreen()))),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(children: [
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _buildModeToggle(),
-              const SizedBox(height: 24),
-              GestureDetector(
-                onTap: _navigateToCoursePlanner,
-                child: Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFFF3E5F5), Color(0xFFE1BEE7)]), borderRadius: BorderRadius.circular(AppTheme.radiusXl)), child: const Row(children: [Icon(Icons.auto_awesome, color: Color(0xFF9C27B0)), SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text("어디갈지 고민되시나요?", style: TextStyle(fontSize: 12, color: Color(0xFF7B1FA2))), Text("✨ AI 데이트/약속 코스 짜기", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))]))])),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            child: Column(children: [
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  _buildModeToggle(),
+                  const SizedBox(height: 24),
+                  GestureDetector(
+                    onTap: _navigateToCoursePlanner,
+                    child: Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFFF3E5F5), Color(0xFFE1BEE7)]), borderRadius: BorderRadius.circular(AppTheme.radiusXl)), child: const Row(children: [Icon(Icons.auto_awesome, color: Color(0xFF9C27B0)), SizedBox(width: 16), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text("어디갈지 고민되시나요?", style: TextStyle(fontSize: 12, color: Color(0xFF7B1FA2))), Text("✨ AI 데이트/약속 코스 짜기", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))]))])),
+                  ),
+                  const SizedBox(height: 32),
+                  const Text("어떤 종류가 땡기세요?", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                  const SizedBox(height: 20),
+                  _buildChipGrid(currentCats.keys.toList(), _selectedMainCats),
+                  if (_selectedMainCats.isNotEmpty) ...[
+                    const SizedBox(height: 32),
+                    const Text("세부 메뉴는요?", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                    const SizedBox(height: 16),
+                    Builder(builder: (context) {
+                      final List<String> subItems = [];
+                      for (var key in _selectedMainCats) { if (currentCats.containsKey(key)) subItems.addAll(currentCats[key]!); }
+                      return _buildChipGrid(subItems, _selectedSubCats);
+                    }),
+                  ],
+                ]),
               ),
-              const SizedBox(height: 32),
-              const Text("어떤 종류가 땡기세요?", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
-              const SizedBox(height: 20),
-              _buildChipGrid(currentCats.keys.toList(), _selectedMainCats),
-              if (_selectedMainCats.isNotEmpty) ...[
-                const SizedBox(height: 32),
-                const Text("세부 메뉴는요?", style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
-                const SizedBox(height: 16),
-                Builder(builder: (context) {
-                  final List<String> subItems = [];
-                  for (var key in _selectedMainCats) { if (currentCats.containsKey(key)) subItems.addAll(currentCats[key]!); }
-                  return _buildChipGrid(subItems, _selectedSubCats);
-                }),
-              ],
-            ]),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Divider(height: 1),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("🔥 내 주변 핫플레이스", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
-                    GestureDetector(
-                      onTap: _showFilterSettings,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(AppTheme.radiusFull), border: Border.all(color: AppColors.borderLight)),
-                        child: Row(children: [const Icon(Icons.tune_rounded, size: 14, color: AppColors.textSecondary), const SizedBox(width: 4), Text("${_searchRadius.toInt()}m · ${_minRating}점↑", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textSecondary))]),
-                      ),
+                    const Divider(height: 1),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text("🔥 내 주변 핫플레이스", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+                        GestureDetector(
+                          onTap: _showFilterSettings,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(color: AppColors.surfaceVariant, borderRadius: BorderRadius.circular(AppTheme.radiusFull), border: Border.all(color: AppColors.borderLight)),
+                            child: Row(children: [const Icon(Icons.tune_rounded, size: 14, color: AppColors.textSecondary), const SizedBox(width: 4), Text("${_searchRadius.toInt()}m · ${_minRating}점↑", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textSecondary))]),
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 16),
+                    _buildHotPlaces(),
                   ],
                 ),
-                const SizedBox(height: 16),
-                _buildHotPlaces(),
-              ],
+              ),
+              const SizedBox(height: 140), // 버튼 높이만큼 여백 확보
+            ]),
+          ),
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: EdgeInsets.fromLTRB(24, 0, 24, MediaQuery.of(context).padding.bottom + 20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.background.withOpacity(0.0),
+                    AppColors.background.withOpacity(0.9),
+                    AppColors.background,
+                  ],
+                  stops: const [0.0, 0.4, 1.0],
+                ),
+              ),
+              child: AppGradientButton(
+                text: '오토카지 추천받기', 
+                icon: Icons.auto_awesome, 
+                isLoading: _isLoading, 
+                onPressed: _isLoading ? null : _searchAndRecommend, 
+                height: 60
+              ),
             ),
           ),
-          const SizedBox(height: 120),
-        ]),
+        ],
       ),
-      bottomSheet: Container(color: AppColors.background, padding: const EdgeInsets.all(24), child: AppGradientButton(text: '오토카지 추천받기', icon: Icons.auto_awesome, isLoading: _isLoading, onPressed: _isLoading ? null : _searchAndRecommend, height: 60)),
     );
   }
 
